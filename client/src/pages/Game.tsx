@@ -1,0 +1,308 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { allowedSyms, isRoomCode } from '@amath/shared';
+import type { Ack, JoinAck, Placement, RoomUpdate, Tile } from '@amath/shared';
+import { Board, type PendingTile } from '../components/Board';
+import { ChoiceDialog, ExchangeDialog, GameOverDialog } from '../components/Dialogs';
+import { MoveLog, ScoreCard, TileTracker } from '../components/Panels';
+import { call, ensureConnected, getName, getToken, setName, setToken, socket } from '../net/socket';
+import { recordFromState, saveMatch } from '../storage/history';
+
+interface Choice {
+  tileId: number;
+  row: number;
+  col: number;
+}
+
+export function Game() {
+  const { code = '' } = useParams();
+  const [token, setTok] = useState(() => getToken(code));
+  if (!isRoomCode(code)) return <Notice title="Invalid room code" text="Room codes have 6 digits." />;
+  if (!token) return <JoinPrompt code={code} onJoined={setTok} />;
+  return <Room code={code} token={token} />;
+}
+
+function Notice({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="page center">
+      <div className="panel">
+        <h2>{title}</h2>
+        <p>{text}</p>
+        <Link className="btn" to="/">Home</Link>
+      </div>
+    </div>
+  );
+}
+
+function JoinPrompt({ code, onJoined }: { code: string; onJoined: (t: string) => void }) {
+  const [name, setNameState] = useState(getName());
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const join = async () => {
+    setBusy(true);
+    setName(name.trim());
+    const res = await call<JoinAck>('room:join', { code, name: name.trim() });
+    setBusy(false);
+    if (res.ok) {
+      setToken(res.code, res.token);
+      onJoined(res.token);
+    } else setError(res.error);
+  };
+  return (
+    <div className="page center">
+      <div className="panel">
+        <h2>Join room {code}</h2>
+        <input value={name} maxLength={16} placeholder="Your nickname" onChange={(e) => setNameState(e.target.value)} />
+        <button disabled={busy} onClick={join}>Join game</button>
+        {error ? <p className="error">{error}</p> : null}
+        <Link className="link" to="/">Back</Link>
+      </div>
+    </div>
+  );
+}
+
+function Room({ code, token }: { code: string; token: string }) {
+  const nav = useNavigate();
+  const [update, setUpdate] = useState<RoomUpdate | null>(null);
+  const [fatal, setFatal] = useState('');
+  const [message, setMessage] = useState('');
+  const [pending, setPending] = useState<PendingTile[]>([]);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [choice, setChoice] = useState<Choice | null>(null);
+  const [exchangeOpen, setExchangeOpen] = useState(false);
+  const [overClosed, setOverClosed] = useState(false);
+  const [order, setOrder] = useState<number[]>([]);
+  const [copied, setCopied] = useState('');
+  const busy = useRef(false);
+
+  // connect + (re)claim the seat whenever the socket (re)connects
+  useEffect(() => {
+    const rejoin = () => {
+      (socket as never as { emit: (...a: unknown[]) => void }).emit('room:rejoin', { code, token }, (r: Ack) => {
+        if (!r.ok) setFatal(r.error);
+      });
+    };
+    const onUpdate = (u: RoomUpdate) => u.code === code && setUpdate(u);
+    socket.on('room:update', onUpdate);
+    socket.on('connect', rejoin);
+    ensureConnected();
+    if (socket.connected) rejoin();
+    return () => {
+      socket.off('room:update', onUpdate);
+      socket.off('connect', rejoin);
+    };
+  }, [code, token]);
+
+  const state = update?.state ?? null;
+  const rack = state?.myRack;
+
+  // keep the rack order stable across updates; drop pending tiles that no longer make sense
+  useEffect(() => {
+    if (!state) return;
+    const ids = state.myRack.map((t) => t.id);
+    setOrder((o) => [...o.filter((id) => ids.includes(id)), ...ids.filter((id) => !o.includes(id))]);
+    setPending((p) => p.filter((x) => ids.includes(x.tile.id) && !state.board[x.row][x.col]));
+    setSelected((s) => (s !== null && ids.includes(s) ? s : null));
+    if (!state.finished) setOverClosed(false);
+  }, [state]);
+
+  // save finished games to the local match history
+  useEffect(() => {
+    if (state?.finished) saveMatch(recordFromState(code, state));
+  }, [state, code]);
+
+  const rackTiles = useMemo(() => {
+    if (!rack) return [];
+    const byId = new Map(rack.map((t) => [t.id, t]));
+    return order.map((id) => byId.get(id)).filter((t): t is Tile => !!t);
+  }, [rack, order]);
+  const pendingIds = new Set(pending.map((p) => p.tile.id));
+  const inRack = rackTiles.filter((t) => !pendingIds.has(t.id));
+
+  const myTurn = !!state && !state.finished && state.turn === state.you;
+
+  const place = useCallback(
+    (tileId: number, row: number, col: number, sym?: string) => {
+      if (!rack || !state) return;
+      const tile = rack.find((t) => t.id === tileId);
+      if (!tile || state.board[row][col]) return;
+      if (pending.some((p) => p.row === row && p.col === col && p.tile.id !== tileId)) return;
+      const opts = allowedSyms(tile.face);
+      if (opts.length > 1 && !sym) {
+        setChoice({ tileId, row, col });
+        return;
+      }
+      setMessage('');
+      setPending((p) => [...p.filter((x) => x.tile.id !== tileId), { tile, row, col, sym: sym ?? opts[0] }]);
+      setSelected(null);
+    },
+    [rack, state, pending],
+  );
+
+  const takeBack = (tileId: number) => setPending((p) => p.filter((x) => x.tile.id !== tileId));
+
+  const onCellClick = (row: number, col: number) => {
+    if (selected !== null) place(selected, row, col);
+  };
+  const dragStart = (tileId: number, e: DragEvent) => {
+    e.dataTransfer.setData('text/plain', String(tileId));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const onCellDrop = (row: number, col: number, e: DragEvent) => {
+    e.preventDefault();
+    const id = Number(e.dataTransfer.getData('text/plain'));
+    if (!Number.isFinite(id)) return;
+    const existing = pending.find((p) => p.tile.id === id);
+    const tile = rack?.find((t) => t.id === id);
+    // a dragged +/-, ×/÷ or blank keeps the symbol it already had
+    place(id, row, col, existing && tile && allowedSyms(tile.face).length > 1 ? existing.sym : undefined);
+  };
+  const onRackDrop = (e: DragEvent) => {
+    e.preventDefault();
+    const id = Number(e.dataTransfer.getData('text/plain'));
+    if (Number.isFinite(id)) takeBack(id);
+  };
+
+  const send = async <T extends Ack>(event: string, ...args: unknown[]) => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      const res = await call<T>(event, ...args);
+      if (!res.ok) setMessage(res.error);
+      return res;
+    } finally {
+      busy.current = false;
+    }
+  };
+
+  const submit = async () => {
+    const placements: Placement[] = pending.map((p) => ({ tileId: p.tile.id, row: p.row, col: p.col, sym: p.sym }));
+    const res = await send('game:move', { placements });
+    if (res?.ok) {
+      setPending([]);
+      setMessage('');
+    }
+  };
+  const doExchange = async (ids: number[]) => {
+    setExchangeOpen(false);
+    const res = await send('game:exchange', { tileIds: ids });
+    if (res?.ok) setPending([]);
+  };
+  const shuffleRack = () => setOrder((o) => o.slice().sort(() => Math.random() - 0.5));
+  const resign = () => {
+    if (window.confirm('Resign this game?')) void send('game:resign');
+  };
+  const copy = async (what: 'code' | 'link') => {
+    const text = what === 'code' ? code : `${location.origin}/room/${code}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      setTimeout(() => setCopied(''), 1500);
+    } catch {
+      window.prompt('Copy this:', text);
+    }
+  };
+
+  if (fatal) return <Notice title="Cannot open this room" text={`${fatal}. The room may have expired.`} />;
+
+  // waiting for the second player
+  if (!state) {
+    return (
+      <div className="page center">
+        <div className="panel room-code-panel">
+          <h2>Game room code</h2>
+          <p className="muted">Send this 6-digit code to your friend. They can type it on the home page.</p>
+          <div className="room-code" aria-label={`Room code ${code.split('').join(' ')}`}>{code}</div>
+          <div className="modal-actions">
+            <button onClick={() => copy('code')}>{copied === 'code' ? 'Copied!' : 'Copy code'}</button>
+            <button className="ghost" onClick={() => copy('link')}>{copied === 'link' ? 'Copied!' : 'Copy link'}</button>
+          </div>
+          <p className="muted pulse">{update ? 'Waiting for your friend to join…' : 'Connecting…'}</p>
+          <Link className="link" to="/">Cancel</Link>
+        </div>
+      </div>
+    );
+  }
+
+  const me = state.you;
+  const opp = me === 0 ? 1 : 0;
+  const oppGone = !state.connected[opp];
+  const bagEmpty = state.bagCount === 0;
+  const canExchange = myTurn && state.bagCount >= 5;
+  const turnText = state.finished ? 'Game over' : myTurn ? (state.firstMove ? 'Your turn — cover the ★ square' : 'Your turn') : `${state.names[opp]}’s turn`;
+  const choiceTile = choice ? rack?.find((t) => t.id === choice.tileId) : undefined;
+
+  return (
+    <div className="game">
+      <TileTracker unseen={state.unseen} />
+
+      <main className="play">
+        <Board
+          board={state.board}
+          pending={pending}
+          onCellClick={onCellClick}
+          onCellDrop={onCellDrop}
+          onPendingClick={takeBack}
+          onPendingDragStart={dragStart}
+        />
+        <div className={`status${myTurn ? ' mine' : ''}`} role="status">
+          {message ? <span className="error">{message}</span> : turnText}
+          {oppGone && !state.finished ? <span className="warn"> · {state.names[opp]} is disconnected</span> : null}
+        </div>
+        <div className="rack" onDragOver={(e) => e.preventDefault()} onDrop={onRackDrop} aria-label="Your tiles">
+          {inRack.map((t) => (
+            <div
+              key={t.id}
+              className={`tile rack-tile${selected === t.id ? ' selected' : ''}`}
+              draggable
+              onDragStart={(e) => dragStart(t.id, e)}
+              onClick={() => setSelected((s) => (s === t.id ? null : t.id))}
+            >
+              <span>{t.face}</span>
+              <sub>{t.points}</sub>
+            </div>
+          ))}
+        </div>
+      </main>
+
+      <aside className="side">
+        <ScoreCard label={`${state.names[opp]}`} name={state.names[opp]} score={state.scores[opp]} active={!state.finished && state.turn === opp} sub={`${state.opponentRackCount} tiles`} />
+        <ScoreCard label="YOU" name={state.names[me]} score={state.scores[me]} active={myTurn} sub={`Bag: ${state.bagCount}`} />
+        <div className="buttons">
+          <button className="ghost" disabled={!canExchange} onClick={() => setExchangeOpen(true)}>Exchange</button>
+          <button className="submit" disabled={!myTurn || pending.length === 0} onClick={submit}>SUBMIT</button>
+          <button className="ghost" disabled={pending.length === 0} onClick={() => { setPending([]); setMessage(''); }}>Recall</button>
+          <button className="ghost" onClick={shuffleRack}>Shuffle</button>
+          {bagEmpty && myTurn ? <button className="ghost" onClick={() => send('game:pass')}>Pass</button> : null}
+        </div>
+        <MoveLog log={state.log} names={state.names} />
+        <div className="side-links">
+          {!state.finished ? <button className="link" onClick={resign}>Resign</button> : null}
+          <Link className="link" to="/">Home</Link>
+        </div>
+      </aside>
+
+      {choice && choiceTile ? (
+        <ChoiceDialog
+          tile={choiceTile}
+          onCancel={() => setChoice(null)}
+          onPick={(sym) => {
+            const c = choice;
+            setChoice(null);
+            place(c.tileId, c.row, c.col, sym);
+          }}
+        />
+      ) : null}
+      {exchangeOpen ? <ExchangeDialog rack={rackTiles} onCancel={() => setExchangeOpen(false)} onConfirm={doExchange} /> : null}
+      {state.finished && !overClosed ? (
+        <GameOverDialog
+          state={state}
+          onRematch={() => socket.emit('game:rematch')}
+          onHome={() => nav('/')}
+          onHistory={() => nav('/history')}
+          onClose={() => setOverClosed(true)}
+        />
+      ) : null}
+    </div>
+  );
+}
