@@ -16,8 +16,17 @@ export function call<T>(event: string, ...args: unknown[]): Promise<T> {
   return new Promise((resolve) => {
     ensureConnected();
     const send = () => (socket as Socket).emit(event, ...args, resolve);
-    if (socket.connected) send();
-    else socket.once('connect', send);
+    if (socket.connected) return send();
+    // give up with a readable error when the game server cannot be reached
+    const timer = setTimeout(() => {
+      socket.off('connect', onConnect);
+      resolve({ ok: false, error: 'Cannot reach the game server' } as T);
+    }, 8000);
+    const onConnect = () => {
+      clearTimeout(timer);
+      send();
+    };
+    socket.once('connect', onConnect);
   });
 }
 
