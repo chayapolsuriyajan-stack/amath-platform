@@ -40,6 +40,12 @@ The game server keeps rooms in memory and needs a long-lived process with WebSoc
 Serverless platforms such as Vercel cannot host it. To use Vercel for the static client only, set `VITE_SERVER_URL` to the
 game server's URL at build time.
 
+### Deploying
+
+1. **Game server** (needs WebSockets): deploy the repo to Render with [render.yaml](render.yaml), or any Node host. Start command `npm start`, health check `/health`.
+2. **Client on Vercel**: import the repo (settings come from [vercel.json](vercel.json)) and add the environment variable
+   `VITE_SERVER_URL=https://<your-game-server>` before building.
+
 ## Layout
 
 | Path | What |
