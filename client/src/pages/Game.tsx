@@ -267,7 +267,7 @@ function Room({ code, token }: { code: string; token: string }) {
 
       <aside className="side">
         <ScoreCard label={`${state.names[opp]}`} name={state.names[opp]} score={state.scores[opp]} active={!state.finished && state.turn === opp} sub={`${state.opponentRackCount} tiles`} />
-        <ScoreCard label="YOU" name={state.names[me]} score={state.scores[me]} active={myTurn} sub={`Bag: ${state.bagCount}`} />
+        <ScoreCard label={`${state.names[me]} (YOU)`} name={state.names[me]} score={state.scores[me]} active={myTurn} sub={`Bag: ${state.bagCount}`} />
         <div className="buttons">
           <button className="ghost" disabled={!canExchange} onClick={() => setExchangeOpen(true)}>Exchange</button>
           <button className="submit" disabled={!myTurn || pending.length === 0} onClick={submit}>SUBMIT</button>
