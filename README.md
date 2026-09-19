@@ -3,6 +3,10 @@
 A copy of [a-math.com](https://a-math.com), the number-and-operator crossword board game, with online 2-player rooms
 and a local match history.
 
+**Live:** https://amath-platform.vercel.app (client on Vercel, game server on Render's free plan at
+https://amath-server.onrender.com). The free server sleeps after 15 minutes idle and takes about a minute to wake;
+open rooms are lost when it sleeps or restarts.
+
 ## Rules
 
 Basic rules follow a-math.com: unary minus only in front of a non-zero number, at most 3 joined digits, no zero padding,
