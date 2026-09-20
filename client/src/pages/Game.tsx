@@ -10,6 +10,7 @@ import { ChoiceDialog, ExchangeDialog, GameOverDialog } from '../components/Dial
 import { MoveLog, ScoreCard, TileTracker } from '../components/Panels';
 import { call, ensureConnected, getName, getToken, setName, setToken, socket } from '../net/socket';
 import { recordFromState, saveMatch } from '../storage/history';
+import { FX_SPEEDS, getFx, getFxSpeed, setFx, setFxSpeed, type FxSpeed } from '../storage/prefs';
 
 interface Choice {
   tileId: number;
@@ -77,7 +78,12 @@ function Room({ code, token }: { code: string; token: string }) {
   const [order, setOrder] = useState<number[]>([]);
   const [copied, setCopied] = useState('');
   const [combo, setCombo] = useState<MoveBreakdown | null>(null);
+  const [fx, setFxState] = useState(getFx);
+  const [fxSpeed, setFxSpeedState] = useState<FxSpeed>(getFxSpeed);
   const [skew, setSkew] = useState(0);
+  // read inside the state effect, which does not re-run when the toggle flips
+  const fxRef = useRef(fx);
+  fxRef.current = fx;
   const busy = useRef(false);
   /** log number of the last move we already animated */
   const seenMove = useRef<number | null>(null);
@@ -133,7 +139,7 @@ function Room({ code, token }: { code: string; token: string }) {
     }
     if (last && last.n > (seenMove.current ?? 0)) {
       seenMove.current = last.n;
-      setCombo(last);
+      if (fxRef.current) setCombo(last);
     }
   }, [state]);
 
@@ -329,6 +335,39 @@ function Room({ code, token }: { code: string; token: string }) {
           names={state.names}
           onSend={(text) => void send('chat:send', { text })}
         />
+        <div className="fx-panel">
+          <button
+            className="fx-toggle"
+            role="switch"
+            aria-checked={fx}
+            onClick={() => {
+              const next = !fx;
+              setFxState(next);
+              setFx(next);
+              if (!next) setCombo(null);
+            }}
+          >
+            <span className={`fx-dot${fx ? ' on' : ''}`} aria-hidden />
+            Score animation: <b>{fx ? 'On' : 'Off'}</b>
+          </button>
+          {fx ? (
+            <div className="seg tiny" aria-label="Animation speed">
+              {FX_SPEEDS.map((s) => (
+                <button
+                  key={s}
+                  className={fxSpeed === s ? 'on' : ''}
+                  aria-pressed={fxSpeed === s}
+                  onClick={() => {
+                    setFxSpeedState(s);
+                    setFxSpeed(s);
+                  }}
+                >
+                  {s}x
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <div className="side-links">
           {!state.finished ? <button className="link" onClick={resign}>Resign</button> : null}
           <Link className="link" to="/">Home</Link>
@@ -352,6 +391,7 @@ function Room({ code, token }: { code: string; token: string }) {
           move={combo}
           who={state.names[combo.player]}
           mine={combo.player === me}
+          speed={fxSpeed}
           onDone={() => setCombo(null)}
         />
       ) : null}

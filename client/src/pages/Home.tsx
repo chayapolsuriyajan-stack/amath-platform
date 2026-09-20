@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { DEFAULT_TURN_SECONDS, TURN_SECONDS_CHOICES, isRoomCode } from '@amath/shared';
 import type { JoinAck } from '@amath/shared';
 import { call, getName, setName, setToken } from '../net/socket';
+import { FX_SPEEDS, getFx, getFxSpeed, setFx, setFxSpeed, type FxSpeed } from '../storage/prefs';
 
 const timeLabel = (s: number) => (s === 0 ? 'No limit' : `${s / 60} min`);
 
@@ -13,6 +14,8 @@ export function Home() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [turnSeconds, setTurnSeconds] = useState(DEFAULT_TURN_SECONDS);
+  const [fx, setFxState] = useState(getFx);
+  const [fxSpeed, setFxSpeedState] = useState<FxSpeed>(getFxSpeed);
 
   const enter = async (event: 'room:create' | 'room:join') => {
     setError('');
@@ -60,6 +63,26 @@ export function Home() {
               ? 'Players can take as long as they like.'
               : 'The clock keeps running past zero. Go 5 minutes over and you lose the game.'}
           </p>
+
+          <span className="settings-label">Score animation</span>
+          <div className="seg">
+            <button type="button" className={fx ? 'on' : ''} aria-pressed={fx} onClick={() => { setFxState(true); setFx(true); }}>On</button>
+            <button type="button" className={!fx ? 'on' : ''} aria-pressed={!fx} onClick={() => { setFxState(false); setFx(false); }}>Off</button>
+            {fx
+              ? FX_SPEEDS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={fxSpeed === s ? 'on' : ''}
+                    aria-pressed={fxSpeed === s}
+                    onClick={() => { setFxSpeedState(s); setFxSpeed(s); }}
+                  >
+                    {s}x
+                  </button>
+                ))
+              : null}
+          </div>
+          <p className="settings-note">Your own setting only, and you can change it during the game.</p>
         </fieldset>
 
         <div className="home-actions">

@@ -29,7 +29,7 @@ function tierOf(total: number): { name: string; shout: string } {
   return { name: 'plain', shout: '' };
 }
 
-function buildSteps(b: MoveBreakdown): { step: Step; at: number }[] {
+function buildSteps(b: MoveBreakdown, speed: number): { step: Step; at: number }[] {
   const out: { step: Step; at: number }[] = [];
   let t = 0;
   const tileCount = b.equations.reduce((n, e) => n + e.tiles.length, 0);
@@ -57,7 +57,7 @@ function buildSteps(b: MoveBreakdown): { step: Step; at: number }[] {
   out.push({ step: { kind: 'total' }, at: t });
   t += 1500;
   out.push({ step: { kind: 'done' }, at: t });
-  return out;
+  return speed === 1 ? out : out.map((s) => ({ ...s, at: Math.round(s.at / speed) }));
 }
 
 function useCountUp(target: number, ms: number, run: boolean) {
@@ -112,30 +112,32 @@ function Particles({ n, kind }: { n: number; kind: string }) {
   );
 }
 
-export function ComboScreen({ move, who, mine, onDone }: { move: MoveBreakdown; who: string; mine: boolean; onDone: () => void }) {
+export function ComboScreen({
+  move, who, mine, speed = 1, onDone,
+}: { move: MoveBreakdown; who: string; mine: boolean; speed?: number; onDone: () => void }) {
   const [step, setStep] = useState<Step>({ kind: 'equation', eq: 0 });
   const [shake, setShake] = useState('');
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
 
   useEffect(() => {
-    const timeline = buildSteps(move);
+    const timeline = buildSteps(move, speed);
     const timers = timeline.map(({ step: s, at }) =>
       window.setTimeout(() => {
         if (s.kind === 'done') doneRef.current();
         else setStep(s);
         if (s.kind === 'mult') {
           setShake('shake-hard');
-          window.setTimeout(() => setShake(''), 420);
+          window.setTimeout(() => setShake(''), 420 / speed);
         }
         if (s.kind === 'total' || s.kind === 'bingo') {
           setShake('shake-boom');
-          window.setTimeout(() => setShake(''), 700);
+          window.setTimeout(() => setShake(''), 700 / speed);
         }
       }, at),
     );
     return () => timers.forEach(clearTimeout);
-  }, [move]);
+  }, [move, speed]);
 
   const eqIndex = 'eq' in step ? step.eq : move.equations.length - 1;
   const eq = move.equations[Math.min(eqIndex, move.equations.length - 1)];
@@ -151,11 +153,15 @@ export function ComboScreen({ move, who, mine, onDone }: { move: MoveBreakdown; 
   // everything scored before this equation, so the running figure keeps climbing
   const before = move.equations.slice(0, eqIndex).reduce((n, e) => n + e.subtotal, 0);
   const tier = tierOf(move.total);
-  const total = useCountUp(move.total, 900, finale);
-  const sub = useCountUp(eq.subtotal, 380, showSub);
+  const total = useCountUp(move.total, 900 / speed, finale);
+  const sub = useCountUp(eq.subtotal, 380 / speed, showSub);
 
   return (
-    <div className={`combo ${shake} ${finale ? `finale tier-${tier.name}` : ''}`} aria-live="polite">
+    <div
+      className={`combo ${shake} ${finale ? `finale tier-${tier.name}` : ''}`}
+      style={{ ['--fxd' as string]: String(1 / speed) }}
+      aria-live="polite"
+    >
       <div className="combo-inner">
         <div className="combo-who">{mine ? 'YOU SCORED' : `${who} SCORED`}</div>
 

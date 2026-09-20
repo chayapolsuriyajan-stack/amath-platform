@@ -40,6 +40,7 @@ const CASES: Record<string, MoveBreakdown> = {
 export function ComboDemo() {
   const [key, setKey] = useState<string | null>(null);
   const [run, setRun] = useState(0);
+  const [speed, setSpeed] = useState(1);
   return (
     <div className="page center">
       <div className="panel">
@@ -48,9 +49,14 @@ export function ComboDemo() {
         {Object.keys(CASES).map((k) => (
           <button key={k} onClick={() => { setKey(k); setRun((n) => n + 1); }}>{k}</button>
         ))}
+        <div className="seg">
+          {[1, 2, 4].map((s) => (
+            <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>{s}x</button>
+          ))}
+        </div>
       </div>
       {key ? (
-        <ComboScreen key={`${key}-${run}`} move={CASES[key]} who="Ann" mine onDone={() => setKey(null)} />
+        <ComboScreen key={`${key}-${run}`} move={CASES[key]} who="Ann" mine speed={speed} onDone={() => setKey(null)} />
       ) : null}
     </div>
   );
