@@ -39,7 +39,7 @@ export function createApp() {
     };
 
     socket.on('room:create', (a, cb) => {
-      const res = rooms.create(a?.name, socket.id);
+      const res = rooms.create(a?.name, a?.turnSeconds, socket.id);
       if (res.ok) {
         current = { room: rooms.rooms.get(res.code)!, seat: 0 };
         broadcast(current.room);
@@ -65,6 +65,7 @@ export function createApp() {
       if (typeof cb === 'function') cb(res.ok ? { ok: true } : res);
     });
 
+    socket.on('chat:send', (a, cb) => guard(cb, (c) => rooms.chat(c.room, c.seat, a?.text)));
     socket.on('game:move', (a, cb) => guard(cb, (c) => rooms.move(c.room, c.seat, a?.placements)));
     socket.on('game:exchange', (a, cb) => guard(cb, (c) => rooms.exchange(c.room, c.seat, a?.tileIds)));
     socket.on('game:pass', (cb) => guard(cb, (c) => rooms.pass(c.room, c.seat)));
@@ -83,6 +84,11 @@ export function createApp() {
 
   const timer = setInterval(() => rooms.sweep(), 60_000);
   timer.unref();
+  // a player who runs past their overtime loses even if they never act again
+  const clock = setInterval(() => {
+    for (const room of rooms.timedOut()) broadcast(room);
+  }, 1000);
+  clock.unref();
   return { app, http, io, rooms };
 }
 

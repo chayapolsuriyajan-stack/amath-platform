@@ -1,13 +1,17 @@
 import type { Tile } from './types';
 
-/** face -> [count, points]. 2-digit tiles are limited to 10-16 plus a separate 20. */
+/**
+ * A-Math Junior Edition: 70 tiles. face -> [count, points].
+ * Numbers run 0-16 plus a separate 20 (no 17, 18 or 19), and there are no
+ * separate × and ÷ tiles — only the dual ×/÷ tile.
+ */
 export const TILE_SET: Record<string, [number, number]> = {
-  '0': [5, 1], '1': [6, 1], '2': [6, 1], '3': [5, 1], '4': [5, 2],
-  '5': [4, 2], '6': [4, 2], '7': [4, 2], '8': [4, 2], '9': [4, 2],
-  '10': [2, 3], '11': [1, 4], '12': [2, 3], '13': [1, 6], '14': [1, 4],
+  '0': [4, 1], '1': [4, 1], '2': [4, 1], '3': [4, 1], '4': [4, 2],
+  '5': [3, 2], '6': [3, 2], '7': [2, 2], '8': [3, 2], '9': [2, 2],
+  '10': [1, 3], '11': [1, 4], '12': [1, 3], '13': [1, 6], '14': [1, 4],
   '15': [1, 4], '16': [1, 4], '20': [1, 5],
-  '+': [4, 2], '-': [4, 2], '+/-': [5, 1], '×': [4, 2], '÷': [4, 2], '×/÷': [4, 1],
-  '=': [11, 1], '?': [4, 0],
+  '+': [4, 2], '-': [4, 2], '+/-': [5, 1], '×/÷': [4, 1],
+  '=': [8, 1], '?': [4, 0],
 };
 
 /** faces in the order the tile tracker shows them */

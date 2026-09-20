@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { FACE_ORDER, TILE_SET } from '@amath/shared';
 import type { LogEntry, PublicState } from '@amath/shared';
 
@@ -14,7 +15,9 @@ export function TileTracker({ unseen }: { unseen: PublicState['unseen'] }) {
   );
 }
 
-export function ScoreCard({ label, name, score, active, sub }: { label: string; name: string; score: number; active: boolean; sub?: string }) {
+export function ScoreCard({
+  label, name, score, active, sub, clock,
+}: { label: string; name: string; score: number; active: boolean; sub?: string; clock?: ReactNode }) {
   return (
     <div className={`score-card${active ? ' active' : ''}`}>
       <div className="score-top" />
@@ -22,6 +25,7 @@ export function ScoreCard({ label, name, score, active, sub }: { label: string; 
       <div className="score-label" title={name}>
         {label}
       </div>
+      {clock ? <div className="score-clock">{clock}</div> : null}
       {sub ? <div className="score-sub">{sub}</div> : null}
     </div>
   );

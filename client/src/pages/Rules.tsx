@@ -15,18 +15,30 @@ export function Rules() {
         <p>Zero left padding is not a valid value.</p>
         <pre>{'012 = 011 + 1   ✗'}</pre>
 
-        <h2>Two-digit tiles (this version)</h2>
+        <h2>Junior Edition tiles</h2>
         <p>
-          The only two-digit tiles are <b>10, 11, 12, 13, 14, 15, 16</b> and a separate <b>20</b>. There are no 17, 18 or 19 tiles.
+          This is the <b>Junior Edition</b> set: {TOTAL_TILES} tiles. The only two-digit tiles are{' '}
+          <b>10, 11, 12, 13, 14, 15, 16</b> and a separate <b>20</b>. There are no 17, 18 or 19 tiles.
           Each of these tiles is one whole number: it can never be joined to another digit, so a 1 next to a 12 tile is not 112.
           Single digits (0–9) still join into numbers of up to 3 digits.
+        </p>
+        <p>
+          There are no separate × and ÷ tiles either. Multiplication and division both come from the <b>×/÷</b> tile, and you
+          choose which one it is when you place it. The same goes for <b>+/-</b>.
+        </p>
+
+        <h2>Time per turn</h2>
+        <p>
+          The rules suggest a 3 minute limit per turn, and the player who creates the room picks the limit. The clock keeps
+          running once it passes zero: if you go <b>5 minutes over</b> the limit on a single turn, you lose the game.
         </p>
 
         <h2>Placing tiles</h2>
         <p>
-          The first move must cover the ★ square. Every later move must connect to tiles on the board. Every line of two or more tiles
-          that you form, across and down, must be a valid equation. Multiplication and division are done before addition and subtraction,
-          and an equation can have more than one = sign as long as every side is equal.
+          The first move must cover the ★ square, and the tile you put there is worth <b>three times</b> its value. Every later
+          move must connect to tiles on the board. Every line of two or more tiles that you form, across and down, must be a valid
+          equation. Multiplication and division are done before addition and subtraction, and an equation can have more than one
+          = sign as long as every side is equal.
         </p>
         <p>
           A +/- or ×/÷ tile becomes one of its two operators when you place it. A blank tile can be any number tile, operator or =.

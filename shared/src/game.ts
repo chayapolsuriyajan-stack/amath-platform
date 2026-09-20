@@ -7,7 +7,20 @@ const MIN_BAG_FOR_EXCHANGE = 5;
 /** 3 passes each, both players combined */
 const MAX_PASSES = 6;
 
-export function newGame(rand: () => number = Math.random, first?: 0 | 1): GameState {
+/** the Junior sheet suggests 3 minutes per turn */
+export const DEFAULT_TURN_SECONDS = 180;
+export const TURN_SECONDS_CHOICES = [0, 60, 120, 180, 300];
+/** how far past the limit a player may run before they lose */
+export const OVERTIME_SECONDS = 300;
+
+export interface GameOptions {
+  /** seconds per turn, 0 for no limit */
+  turnSeconds?: number;
+  first?: 0 | 1;
+  now?: number;
+}
+
+export function newGame(rand: () => number = Math.random, opts: GameOptions = {}): GameState {
   const bag = createBag(rand);
   const racks: [Tile[], Tile[]] = [bag.splice(0, RACK_SIZE), bag.splice(0, RACK_SIZE)];
   return {
@@ -15,11 +28,13 @@ export function newGame(rand: () => number = Math.random, first?: 0 | 1): GameSt
     bag,
     racks,
     scores: [0, 0],
-    turn: first ?? (rand() < 0.5 ? 0 : 1),
+    turn: opts.first ?? (rand() < 0.5 ? 0 : 1),
     passes: 0,
     log: [],
     finished: false,
     firstMove: true,
+    turnSeconds: opts.turnSeconds ?? DEFAULT_TURN_SECONDS,
+    turnStartedAt: opts.now ?? Date.now(),
   };
 }
 
@@ -34,7 +49,32 @@ function finish(g: GameState) {
   g.winner = g.scores[0] === g.scores[1] ? null : g.scores[0] > g.scores[1] ? 0 : 1;
 }
 
-export function playMove(g: GameState, player: 0 | 1, placements: Placement[]): MoveResult {
+function nextTurn(g: GameState, player: 0 | 1, now: number) {
+  g.turn = other(player);
+  g.turnStartedAt = now;
+}
+
+/** milliseconds left on the current turn; negative means the player is into overtime */
+export function timeLeftMs(g: GameState, now = Date.now()): number {
+  if (g.turnSeconds <= 0) return Infinity;
+  return g.turnSeconds * 1000 - (now - g.turnStartedAt);
+}
+
+/**
+ * End the game if the player on turn has run more than OVERTIME_SECONDS past the
+ * limit. Call before acting on any move and from the server's ticker.
+ */
+export function checkTimeout(g: GameState, now = Date.now()): boolean {
+  if (g.finished || g.turnSeconds <= 0) return false;
+  if (timeLeftMs(g, now) > -OVERTIME_SECONDS * 1000) return false;
+  g.endReason = 'timeout';
+  g.finished = true;
+  g.winner = other(g.turn);
+  return true;
+}
+
+export function playMove(g: GameState, player: 0 | 1, placements: Placement[], now = Date.now()): MoveResult {
+  if (checkTimeout(g, now)) return { ok: false, error: 'You ran out of time' };
   if (g.finished) return { ok: false, error: 'The game is over' };
   if (g.turn !== player) return { ok: false, error: 'It is not your turn' };
   const res = evaluateMove(g.board, g.racks[player], placements, g.firstMove);
@@ -49,18 +89,26 @@ export function playMove(g: GameState, player: 0 | 1, placements: Placement[]): 
   g.passes = 0;
   g.firstMove = false;
   push(g, { player, type: 'move', equations: move.equations, score: move.score, bingo: move.bingo });
+  g.lastMove = {
+    n: g.log.length,
+    player,
+    equations: move.breakdown,
+    bingo: move.bingo,
+    total: move.score,
+  };
 
   if (g.racks[player].length === 0 && g.bag.length === 0) {
     g.endReason = 'rack-empty';
     g.scores[player] += tileValue(g.racks[other(player)]) * 2;
     finish(g);
   } else {
-    g.turn = other(player);
+    nextTurn(g, player, now);
   }
   return { ok: true };
 }
 
-export function exchange(g: GameState, player: 0 | 1, tileIds: number[]): MoveResult {
+export function exchange(g: GameState, player: 0 | 1, tileIds: number[], now = Date.now()): MoveResult {
+  if (checkTimeout(g, now)) return { ok: false, error: 'You ran out of time' };
   if (g.finished) return { ok: false, error: 'The game is over' };
   if (g.turn !== player) return { ok: false, error: 'It is not your turn' };
   if (g.bag.length < MIN_BAG_FOR_EXCHANGE) return { ok: false, error: 'Fewer than 5 tiles left in the bag' };
@@ -74,11 +122,12 @@ export function exchange(g: GameState, player: 0 | 1, tileIds: number[]): MoveRe
   g.bag = shuffle([...g.bag, ...give]);
   g.passes = 0;
   push(g, { player, type: 'exchange', equations: [], score: 0 });
-  g.turn = other(player);
+  nextTurn(g, player, now);
   return { ok: true };
 }
 
-export function pass(g: GameState, player: 0 | 1): MoveResult {
+export function pass(g: GameState, player: 0 | 1, now = Date.now()): MoveResult {
+  if (checkTimeout(g, now)) return { ok: false, error: 'You ran out of time' };
   if (g.finished) return { ok: false, error: 'The game is over' };
   if (g.turn !== player) return { ok: false, error: 'It is not your turn' };
   if (g.bag.length > 0) return { ok: false, error: 'You can only pass when the bag is empty' };
@@ -90,7 +139,7 @@ export function pass(g: GameState, player: 0 | 1): MoveResult {
     g.scores[1] -= tileValue(g.racks[1]);
     finish(g);
   } else {
-    g.turn = other(player);
+    nextTurn(g, player, now);
   }
   return { ok: true };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   FACE_ORDER, PREMIUMS, TILE_SET, TOTAL_TILES, checkEquation, createBag, emptyBoard,
-  evaluateMove, exchange, newGame, pass, playMove, resign,
+  OVERTIME_SECONDS, checkTimeout, evaluateMove, exchange, newGame, pass, playMove, resign, timeLeftMs,
 } from '../src';
 import type { Cell, Placement, Tile } from '../src';
 
@@ -11,16 +11,30 @@ function syms(s: string): string[] {
 }
 const ok = (s: string) => checkEquation(syms(s)).ok;
 
-describe('tile set', () => {
-  it('has 97 tiles and no 17/18/19', () => {
-    expect(TOTAL_TILES).toBe(97);
-    expect(createBag()).toHaveLength(97);
+describe('Junior Edition tile set', () => {
+  it('has 70 tiles, numbers 0-16 and 20 only', () => {
+    expect(TOTAL_TILES).toBe(70);
+    expect(createBag()).toHaveLength(70);
     for (const f of ['17', '18', '19']) expect(TILE_SET[f]).toBeUndefined();
     expect(FACE_ORDER).toContain('20');
     expect(FACE_ORDER).toContain('16');
   });
+  it('has no separate x or division tiles, and 8 equals tiles', () => {
+    expect(TILE_SET['×']).toBeUndefined();
+    expect(TILE_SET['÷']).toBeUndefined();
+    expect(TILE_SET['×/÷'][0]).toBe(4);
+    expect(TILE_SET['+/-'][0]).toBe(5);
+    expect(TILE_SET['='][0]).toBe(8);
+    expect(TILE_SET['?'][0]).toBe(4);
+  });
+  it('matches the counts and values printed on the sheet', () => {
+    expect(TILE_SET['0']).toEqual([4, 1]);
+    expect(TILE_SET['7']).toEqual([2, 2]);
+    expect(TILE_SET['13']).toEqual([1, 6]);
+    expect(TILE_SET['20']).toEqual([1, 5]);
+  });
   it('gives every tile a unique id', () => {
-    expect(new Set(createBag().map((t) => t.id)).size).toBe(97);
+    expect(new Set(createBag().map((t) => t.id)).size).toBe(70);
   });
 });
 
@@ -92,8 +106,12 @@ describe('move evaluation', () => {
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(PREMIUMS[7][7]).toBe('★');
-      expect(res.move.score).toBe(5); // 5 tiles × 1 point, no premium hit
+      // 5 tiles × 1 point, and the tile on ★ is tripled (+2)
+      expect(res.move.score).toBe(7);
       expect(res.move.equations).toEqual(['1+2=3']);
+      const star = res.move.breakdown[0].tiles[2];
+      expect(star.premium).toBe('★');
+      expect(star.value).toBe(3);
     }
   });
 
@@ -103,7 +121,8 @@ describe('move evaluation', () => {
     const pl = rack.map((t, i) => ({ tileId: t.id, row: 7, col: 3 + i }));
     const res = evaluateMove(emptyBoard(), rack, pl, true);
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.move.score).toBe(6); // first tile doubled
+    // first tile doubled by 2P (+1), last tile tripled by ★ (+2)
+    if (res.ok) expect(res.move.score).toBe(8);
   });
 
   it('equation multiplier triples the whole line', () => {
@@ -163,7 +182,8 @@ describe('move evaluation', () => {
     expect(r8.ok).toBe(true);
     if (r8.ok) {
       expect(r8.move.bingo).toBe(true);
-      expect(r8.move.score).toBe(8 + 1 + 40); // 2P at col 3 doubles one tile
+      // 8 tiles × 1, 2P at col 3 (+1), ★ at col 7 (+2), then the 40 bonus
+      expect(r8.move.score).toBe(8 + 1 + 2 + 40);
     }
   });
 });
@@ -174,27 +194,27 @@ describe('game flow', () => {
     return () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296);
   };
 
-  it('deals 8 tiles each and leaves 81 in the bag', () => {
-    const g = newGame(seeded(), 0);
+  it('deals 8 tiles each and leaves 54 in the bag', () => {
+    const g = newGame(seeded(), { first: 0 });
     expect(g.racks[0]).toHaveLength(8);
     expect(g.racks[1]).toHaveLength(8);
-    expect(g.bag).toHaveLength(81);
+    expect(g.bag).toHaveLength(54);
   });
 
   it('only lets the player on turn act, and exchange needs 5+ tiles in the bag', () => {
-    const g = newGame(seeded(), 0);
+    const g = newGame(seeded(), { first: 0 });
     expect(exchange(g, 1, [g.racks[1][0].id]).ok).toBe(false);
     const give = g.racks[0][0].id;
     expect(exchange(g, 0, [give]).ok).toBe(true);
     expect(g.turn).toBe(1);
     expect(g.racks[0].some((t) => t.id === give)).toBe(false);
-    expect(g.bag).toHaveLength(81);
+    expect(g.bag).toHaveLength(54);
     g.bag = g.bag.slice(0, 4);
     expect(exchange(g, 1, [g.racks[1][0].id]).ok).toBe(false);
   });
 
   it('pass is only allowed when the bag is empty and 6 passes end the game', () => {
-    const g = newGame(seeded(), 0);
+    const g = newGame(seeded(), { first: 0 });
     expect(pass(g, 0).ok).toBe(false);
     g.bag = [];
     g.scores = [10, 10];
@@ -205,7 +225,7 @@ describe('game flow', () => {
   });
 
   it('ending by an empty rack gives the winner 2× the opponent rack', () => {
-    const g = newGame(seeded(), 0);
+    const g = newGame(seeded(), { first: 0 });
     g.bag = [];
     g.racks[0] = syms('1+2=3').map((s) => tile(s, 1));
     g.racks[1] = [tile('9', 2), tile('8', 2)];
@@ -213,13 +233,85 @@ describe('game flow', () => {
     expect(playMove(g, 0, pl).ok).toBe(true);
     expect(g.finished).toBe(true);
     expect(g.endReason).toBe('rack-empty');
-    expect(g.scores[0]).toBe(5 + 8);
+    expect(g.scores[0]).toBe(7 + 8);
     expect(g.winner).toBe(0);
   });
 
   it('resign hands the win to the opponent', () => {
-    const g = newGame(seeded(), 0);
+    const g = newGame(seeded(), { first: 0 });
     expect(resign(g, 0).ok).toBe(true);
     expect(g.winner).toBe(1);
+  });
+});
+
+describe('turn clock', () => {
+  const seeded = () => {
+    let s = 7;
+    return () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296);
+  };
+  const T0 = 1_000_000;
+  const start = () => newGame(seeded(), { first: 0, turnSeconds: 180, now: T0 });
+
+  it('reports time left and lets it run negative', () => {
+    const g = start();
+    expect(timeLeftMs(g, T0)).toBe(180_000);
+    expect(timeLeftMs(g, T0 + 200_000)).toBe(-20_000);
+  });
+
+  it('keeps playing while the player is into overtime', () => {
+    const g = start();
+    g.racks[0] = syms('1+2=3').map((s) => tile(s, 1));
+    const pl = g.racks[0].map((t, i) => ({ tileId: t.id, row: 7, col: 5 + i }));
+    // 4 minutes over the limit, still inside the 5 minute grace
+    const res = playMove(g, 0, pl, T0 + (180 + 240) * 1000);
+    expect(res.ok).toBe(true);
+    expect(g.finished).toBe(false);
+  });
+
+  it('loses the game once a player passes the overtime grace', () => {
+    const g = start();
+    const late = T0 + (180 + OVERTIME_SECONDS) * 1000 + 1;
+    expect(checkTimeout(g, late)).toBe(true);
+    expect(g.finished).toBe(true);
+    expect(g.endReason).toBe('timeout');
+    expect(g.winner).toBe(1);
+  });
+
+  it('resets the clock when the turn changes, and never times out with no limit', () => {
+    const g = start();
+    g.racks[0] = syms('1+2=3').map((s) => tile(s, 1));
+    const pl = g.racks[0].map((t, i) => ({ tileId: t.id, row: 7, col: 5 + i }));
+    playMove(g, 0, pl, T0 + 30_000);
+    expect(g.turn).toBe(1);
+    expect(g.turnStartedAt).toBe(T0 + 30_000);
+
+    const free = newGame(seeded(), { first: 0, turnSeconds: 0, now: T0 });
+    expect(timeLeftMs(free, T0 + 10 ** 9)).toBe(Infinity);
+    expect(checkTimeout(free, T0 + 10 ** 9)).toBe(false);
+  });
+});
+
+describe('scoring breakdown for the combo screen', () => {
+  it('lists every tile with its premium, multiplier and subtotal', () => {
+    const rack = syms('1+2=3').map((s) => tile(s, 1));
+    const res = evaluateMove(emptyBoard(), rack, rack.map((t, i) => ({ tileId: t.id, row: 7, col: 3 + i })), true);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const eq = res.move.breakdown[0];
+    expect(eq.text).toBe('1+2=3');
+    expect(eq.tiles).toHaveLength(5);
+    expect(eq.tiles[0]).toMatchObject({ sym: '1', premium: '2P', value: 2, isNew: true });
+    expect(eq.tiles[4]).toMatchObject({ sym: '3', premium: '★', value: 3 });
+    expect(eq.eqMult).toBe(1);
+    expect(eq.subtotal).toBe(res.move.score);
+  });
+
+  it('records the breakdown on the game state for both players', () => {
+    const g = newGame(() => 0.5, { first: 0, turnSeconds: 0 });
+    g.racks[0] = syms('1+2=3').map((s) => tile(s, 1));
+    const pl = g.racks[0].map((t, i) => ({ tileId: t.id, row: 7, col: 5 + i }));
+    expect(playMove(g, 0, pl).ok).toBe(true);
+    expect(g.lastMove).toMatchObject({ n: 1, player: 0, bingo: false, total: 7 });
+    expect(g.lastMove?.equations[0].tiles).toHaveLength(5);
   });
 });

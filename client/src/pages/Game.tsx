@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { allowedSyms, isRoomCode } from '@amath/shared';
-import type { Ack, JoinAck, Placement, RoomUpdate, Tile } from '@amath/shared';
+import type { Ack, JoinAck, MoveBreakdown, Placement, RoomUpdate, Tile } from '@amath/shared';
 import { Board, type PendingTile } from '../components/Board';
+import { Chat } from '../components/Chat';
+import { Clock, useTurnClock } from '../components/Clock';
+import { ComboScreen } from '../components/ComboScreen';
 import { ChoiceDialog, ExchangeDialog, GameOverDialog } from '../components/Dialogs';
 import { MoveLog, ScoreCard, TileTracker } from '../components/Panels';
 import { call, ensureConnected, getName, getToken, setName, setToken, socket } from '../net/socket';
@@ -73,7 +76,13 @@ function Room({ code, token }: { code: string; token: string }) {
   const [overClosed, setOverClosed] = useState(false);
   const [order, setOrder] = useState<number[]>([]);
   const [copied, setCopied] = useState('');
+  const [combo, setCombo] = useState<MoveBreakdown | null>(null);
+  const [skew, setSkew] = useState(0);
   const busy = useRef(false);
+  /** log number of the last move we already animated */
+  const seenMove = useRef<number | null>(null);
+  /** true once we have taken a first state snapshot for this room */
+  const primed = useRef(false);
 
   // connect + (re)claim the seat whenever the socket (re)connects
   useEffect(() => {
@@ -111,6 +120,23 @@ function Room({ code, token }: { code: string; token: string }) {
     if (state?.finished) saveMatch(recordFromState(code, state));
   }, [state, code]);
 
+  // keep the local clock honest, then play the combo for each new move
+  useEffect(() => {
+    if (!state) return;
+    setSkew(state.serverNow - Date.now());
+    const last = state.lastMove;
+    if (!primed.current) {
+      // first state after joining or a refresh: don't replay moves already made
+      primed.current = true;
+      seenMove.current = last?.n ?? 0;
+      return;
+    }
+    if (last && last.n > (seenMove.current ?? 0)) {
+      seenMove.current = last.n;
+      setCombo(last);
+    }
+  }, [state]);
+
   const rackTiles = useMemo(() => {
     if (!rack) return [];
     const byId = new Map(rack.map((t) => [t.id, t]));
@@ -120,6 +146,12 @@ function Room({ code, token }: { code: string; token: string }) {
   const inRack = rackTiles.filter((t) => !pendingIds.has(t.id));
 
   const myTurn = !!state && !state.finished && state.turn === state.you;
+  const clockMs = useTurnClock(
+    state?.turnSeconds ?? 0,
+    state?.turnStartedAt ?? 0,
+    skew,
+    !!state && !state.finished,
+  );
 
   const place = useCallback(
     (tileId: number, row: number, col: number, sym?: string) => {
@@ -227,6 +259,7 @@ function Room({ code, token }: { code: string; token: string }) {
   const me = state.you;
   const opp = me === 0 ? 1 : 0;
   const oppGone = !state.connected[opp];
+  const oppTurn = !state.finished && state.turn === opp;
   const bagEmpty = state.bagCount === 0;
   const canExchange = myTurn && state.bagCount >= 5;
   const turnText = state.finished ? 'Game over' : myTurn ? (state.firstMove ? 'Your turn — cover the ★ square' : 'Your turn') : `${state.names[opp]}’s turn`;
@@ -266,8 +299,22 @@ function Room({ code, token }: { code: string; token: string }) {
       </main>
 
       <aside className="side">
-        <ScoreCard label={`${state.names[opp]}`} name={state.names[opp]} score={state.scores[opp]} active={!state.finished && state.turn === opp} sub={`${state.opponentRackCount} tiles`} />
-        <ScoreCard label={`${state.names[me]} (YOU)`} name={state.names[me]} score={state.scores[me]} active={myTurn} sub={`Bag: ${state.bagCount}`} />
+        <ScoreCard
+          label={`${state.names[opp]}`}
+          name={state.names[opp]}
+          score={state.scores[opp]}
+          active={oppTurn}
+          sub={`${state.opponentRackCount} tiles`}
+          clock={<Clock ms={oppTurn ? clockMs : null} active={oppTurn} />}
+        />
+        <ScoreCard
+          label={`${state.names[me]} (YOU)`}
+          name={state.names[me]}
+          score={state.scores[me]}
+          active={myTurn}
+          sub={`Bag: ${state.bagCount}`}
+          clock={<Clock ms={myTurn ? clockMs : null} active={myTurn} />}
+        />
         <div className="buttons">
           <button className="ghost" disabled={!canExchange} onClick={() => setExchangeOpen(true)}>Exchange</button>
           <button className="submit" disabled={!myTurn || pending.length === 0} onClick={submit}>SUBMIT</button>
@@ -276,6 +323,12 @@ function Room({ code, token }: { code: string; token: string }) {
           {bagEmpty && myTurn ? <button className="ghost" onClick={() => send('game:pass')}>Pass</button> : null}
         </div>
         <MoveLog log={state.log} names={state.names} />
+        <Chat
+          messages={state.chat}
+          you={me}
+          names={state.names}
+          onSend={(text) => void send('chat:send', { text })}
+        />
         <div className="side-links">
           {!state.finished ? <button className="link" onClick={resign}>Resign</button> : null}
           <Link className="link" to="/">Home</Link>
@@ -294,6 +347,14 @@ function Room({ code, token }: { code: string; token: string }) {
         />
       ) : null}
       {exchangeOpen ? <ExchangeDialog rack={rackTiles} onCancel={() => setExchangeOpen(false)} onConfirm={doExchange} /> : null}
+      {combo ? (
+        <ComboScreen
+          move={combo}
+          who={state.names[combo.player]}
+          mine={combo.player === me}
+          onDone={() => setCombo(null)}
+        />
+      ) : null}
       {state.finished && !overClosed ? (
         <GameOverDialog
           state={state}

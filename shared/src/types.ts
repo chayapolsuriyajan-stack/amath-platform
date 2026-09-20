@@ -1,6 +1,6 @@
 export interface Tile {
   id: number;
-  /** what is printed on the tile: '0'..'16','20','+','-','+/-','×','÷','×/÷','=','?' */
+  /** what is printed on the tile: '0'..'16','20','+','-','+/-','×/÷','=','?' */
   face: string;
   points: number;
 }
@@ -24,6 +24,36 @@ export interface Placement {
 
 export type LogType = 'move' | 'exchange' | 'pass' | 'resign';
 
+/** one tile's contribution, for the scoring animation */
+export interface ScoredTile {
+  sym: string;
+  face: string;
+  base: number;
+  /** premium that applied to this tile, '' when none or the tile was already there */
+  premium: string;
+  /** base after any piece multiplier */
+  value: number;
+  isNew: boolean;
+}
+
+export interface EquationScore {
+  text: string;
+  tiles: ScoredTile[];
+  /** product of the equation multipliers this move covered */
+  eqMult: number;
+  subtotal: number;
+}
+
+/** everything the client needs to replay a move's scoring */
+export interface MoveBreakdown {
+  /** matches LogEntry.n so the client can tell a new move from a re-render */
+  n: number;
+  player: 0 | 1;
+  equations: EquationScore[];
+  bingo: boolean;
+  total: number;
+}
+
 export interface LogEntry {
   n: number;
   player: number;
@@ -33,7 +63,14 @@ export interface LogEntry {
   bingo?: boolean;
 }
 
-export type EndReason = 'rack-empty' | 'passes' | 'resign';
+export interface ChatMessage {
+  id: number;
+  player: 0 | 1;
+  text: string;
+  at: number;
+}
+
+export type EndReason = 'rack-empty' | 'passes' | 'resign' | 'timeout';
 
 export interface GameState {
   board: Board;
@@ -49,6 +86,11 @@ export interface GameState {
   /** null on a draw */
   winner?: 0 | 1 | null;
   firstMove: boolean;
+  /** seconds allowed per turn; 0 means no limit */
+  turnSeconds: number;
+  /** epoch ms when the current turn started */
+  turnStartedAt: number;
+  lastMove?: MoveBreakdown;
 }
 
 /** What one player is allowed to see. */
@@ -71,6 +113,12 @@ export interface PublicState {
   /** face -> how many tiles you have not seen yet (bag + opponent rack) */
   unseen: Record<string, number>;
   rematchVotes: [boolean, boolean];
+  turnSeconds: number;
+  turnStartedAt: number;
+  /** server clock, so the client can correct for clock skew */
+  serverNow: number;
+  lastMove?: MoveBreakdown;
+  chat: ChatMessage[];
 }
 
 export type MoveResult<T = {}> = ({ ok: true } & T) | { ok: false; error: string };

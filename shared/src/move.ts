@@ -1,7 +1,7 @@
 import { CENTER, PREMIUMS, SIZE, inBounds } from './board';
 import { checkEquation } from './expression';
 import { RACK_SIZE, allowedSyms } from './tiles';
-import type { Board, Cell, MoveResult, Placement, Tile } from './types';
+import type { Board, Cell, EquationScore, MoveResult, Placement, ScoredTile, Tile } from './types';
 
 export interface Line {
   cells: { r: number; c: number; cell: Cell; isNew: boolean }[];
@@ -11,6 +11,7 @@ export interface ScoredMove {
   score: number;
   bingo: boolean;
   equations: string[];
+  breakdown: EquationScore[];
   placed: { r: number; c: number; cell: Cell }[];
 }
 
@@ -107,6 +108,7 @@ export function evaluateMove(
 
   let score = 0;
   const equations: string[] = [];
+  const breakdown: EquationScore[] = [];
   for (const line of lines) {
     const syms = line.cells.map((x) => x.cell.sym);
     const text = syms.join('');
@@ -116,21 +118,28 @@ export function evaluateMove(
 
     let sum = 0;
     let eqMult = 1;
+    const tiles: ScoredTile[] = [];
     for (const x of line.cells) {
-      let pts = x.cell.tile.points;
+      const base = x.cell.tile.points;
+      let value = base;
+      let premium = '';
       if (x.isNew) {
         const prem = PREMIUMS[x.r][x.c];
-        if (prem === '2P') pts *= 2;
-        else if (prem === '3P') pts *= 3;
-        else if (prem === '2E') eqMult *= 2;
-        else if (prem === '3E') eqMult *= 3;
+        // ★ counts as a triple-piece square
+        if (prem === '2P') { value = base * 2; premium = prem; }
+        else if (prem === '3P' || prem === '★') { value = base * 3; premium = prem; }
+        else if (prem === '2E') { eqMult *= 2; premium = prem; }
+        else if (prem === '3E') { eqMult *= 3; premium = prem; }
       }
-      sum += pts;
+      sum += value;
+      tiles.push({ sym: x.cell.sym, face: x.cell.tile.face, base, premium, value, isNew: x.isNew });
     }
-    score += sum * eqMult;
+    const subtotal = sum * eqMult;
+    score += subtotal;
+    breakdown.push({ text, tiles, eqMult, subtotal });
   }
 
   const bingo = placed.length === RACK_SIZE;
   if (bingo) score += 40;
-  return { ok: true, move: { score, bingo, equations, placed } };
+  return { ok: true, move: { score, bingo, equations, breakdown, placed } };
 }

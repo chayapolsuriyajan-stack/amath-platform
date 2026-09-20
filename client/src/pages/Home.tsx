@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { isRoomCode } from '@amath/shared';
+import { DEFAULT_TURN_SECONDS, TURN_SECONDS_CHOICES, isRoomCode } from '@amath/shared';
 import type { JoinAck } from '@amath/shared';
 import { call, getName, setName, setToken } from '../net/socket';
+
+const timeLabel = (s: number) => (s === 0 ? 'No limit' : `${s / 60} min`);
 
 export function Home() {
   const nav = useNavigate();
@@ -10,13 +12,14 @@ export function Home() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [turnSeconds, setTurnSeconds] = useState(DEFAULT_TURN_SECONDS);
 
   const enter = async (event: 'room:create' | 'room:join') => {
     setError('');
     if (event === 'room:join' && !isRoomCode(code)) return setError('Enter the 6-digit room code');
     setBusy(true);
     setName(name.trim());
-    const res = await call<JoinAck>(event, { name: name.trim(), code });
+    const res = await call<JoinAck>(event, { name: name.trim(), code, turnSeconds });
     setBusy(false);
     if (!res.ok) return setError(res.error);
     setToken(res.code, res.token);
@@ -35,6 +38,29 @@ export function Home() {
           <span>Nickname</span>
           <input value={name} maxLength={16} placeholder="Player" onChange={(e) => setNameState(e.target.value)} />
         </label>
+
+        <fieldset className="settings">
+          <legend>Game settings</legend>
+          <span className="settings-label">Time per turn</span>
+          <div className="seg">
+            {TURN_SECONDS_CHOICES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={turnSeconds === s ? 'on' : ''}
+                aria-pressed={turnSeconds === s}
+                onClick={() => setTurnSeconds(s)}
+              >
+                {timeLabel(s)}
+              </button>
+            ))}
+          </div>
+          <p className="settings-note">
+            {turnSeconds === 0
+              ? 'Players can take as long as they like.'
+              : 'The clock keeps running past zero. Go 5 minutes over and you lose the game.'}
+          </p>
+        </fieldset>
 
         <div className="home-actions">
           <button disabled={busy} onClick={() => enter('room:create')}>New Game</button>
