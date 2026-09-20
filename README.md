@@ -46,9 +46,30 @@ game server's URL at build time.
 
 ### Deploying
 
-1. **Game server** (needs WebSockets): deploy the repo to Render with [render.yaml](render.yaml), or any Node host. Start command `npm start`, health check `/health`.
-2. **Client on Vercel**: import the repo (settings come from [vercel.json](vercel.json)) and add the environment variable
-   `VITE_SERVER_URL=https://<your-game-server>` before building.
+Both halves are deployed from the command line. Pushing to GitHub does **not** deploy anything, because
+Render has no webhook access to this repo — run the deploy yourself after pushing:
+
+```bash
+npm run deploy
+```
+
+That runs `deploy:server` (Render CLI, waits for the build and fails loudly if it breaks) then
+`deploy:client` (Vercel CLI, which builds from [vercel.json](vercel.json) with `VITE_SERVER_URL`
+pointing at the game server). Either half can be deployed on its own with `npm run deploy:server`
+or `npm run deploy:client`.
+
+First time on a new machine:
+
+```bash
+winget install --id Render.CLI
+render login
+render workspace set
+```
+
+The Render service id is in the `deploy:server` script; the service itself was created from
+[render.yaml](render.yaml) (Node, `npm start`, health check `/health`, free plan).
+The free plan sleeps after 15 minutes idle, takes about a minute to wake, and loses open rooms
+whenever it sleeps or redeploys.
 
 ## Layout
 

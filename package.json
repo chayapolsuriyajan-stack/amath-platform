@@ -8,7 +8,10 @@
     "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w client",
     "start": "npm run start -w server",
-    "test": "vitest run"
+    "test": "vitest run",
+    "deploy": "npm run deploy:server && npm run deploy:client",
+    "deploy:server": "render deploys create srv-dan925ajnfac73fqh3n0 --confirm --wait -o text",
+    "deploy:client": "npx --yes vercel deploy --prod --yes --build-env VITE_SERVER_URL=https://amath-server.onrender.com"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
