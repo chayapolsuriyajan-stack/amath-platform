@@ -4,16 +4,17 @@ import { allowedSyms, isRoomCode } from '@amath/shared';
 import type { Ack, JoinAck, MoveBreakdown, Placement, RoomUpdate, Sticker, StickerEvent, Tile } from '@amath/shared';
 import { Board, type PendingTile } from '../components/Board';
 import { Chat } from '../components/Chat';
-import { Clock, useTurnClock } from '../components/Clock';
+import { Clocks, useServerNow } from '../components/Clock';
 import { ComboScreen } from '../components/ComboScreen';
 import { ChoiceDialog, ExchangeDialog, GameOverDialog } from '../components/Dialogs';
+import { MySettings, usePrefs } from '../components/MySettings';
 import { MoveLog, ScoreCard, TileTracker } from '../components/Panels';
 import { StickerLayer, type Floater } from '../components/Stickers';
 import { Toast, describeError, type ToastData } from '../components/Toast';
 import { useFlip } from '../components/useFlip';
 import { call, ensureConnected, getName, getToken, setName, setToken, socket } from '../net/socket';
 import { recordFromState, saveMatch } from '../storage/history';
-import { FX_SPEEDS, getFx, getFxSpeed, setFx, setFxSpeed, type FxSpeed } from '../storage/prefs';
+import { sfx } from '../sound/sfx';
 
 interface Choice {
   tileId: number;
@@ -96,12 +97,13 @@ function Room({ code, token }: { code: string; token: string }) {
   const [order, setOrder] = useState<number[]>([]);
   const [copied, setCopied] = useState('');
   const [combo, setCombo] = useState<MoveBreakdown | null>(null);
-  const [fx, setFxState] = useState(getFx);
-  const [fxSpeed, setFxSpeedState] = useState<FxSpeed>(getFxSpeed);
+  const prefs = usePrefs();
   const [skew, setSkew] = useState(0);
   // read inside the state effect, which does not re-run when the toggle flips
-  const fxRef = useRef(fx);
-  fxRef.current = fx;
+  const fxRef = useRef(prefs.fx);
+  fxRef.current = prefs.fx;
+  /** rack tiles we already know about, so only fresh draws make the draw sound */
+  const knownRack = useRef<Set<number> | null>(null);
   const busy = useRef(false);
   /** log number of the last move we already animated */
   const seenMove = useRef<number | null>(null);
@@ -134,6 +136,7 @@ function Room({ code, token }: { code: string; token: string }) {
 
   const spawn = useCallback((sticker: Sticker, x: number, y: number) => {
     const key = ++floaterId.current;
+    sfx.sticker();
     setFloaters((f) => [...f.slice(-(MAX_FLOATERS - 1)), { key, sticker, x, y }]);
   }, []);
   // stable, so each sticker's removal timer is not reset by every clock tick
@@ -166,6 +169,11 @@ function Room({ code, token }: { code: string; token: string }) {
   useEffect(() => {
     if (!state) return;
     const ids = state.myRack.map((t) => t.id);
+    if (knownRack.current) {
+      const fresh = ids.filter((id) => !knownRack.current!.has(id)).length;
+      if (fresh > 0) sfx.draw(fresh);
+    }
+    knownRack.current = new Set(ids);
     setOrder((o) => [...o.filter((id) => ids.includes(id)), ...ids.filter((id) => !o.includes(id))]);
     setPending((p) => p.filter((x) => ids.includes(x.tile.id) && !state.board[x.row][x.col]));
     setSelected((s) => (s !== null && ids.includes(s) ? s : null));
@@ -191,6 +199,7 @@ function Room({ code, token }: { code: string; token: string }) {
     if (last && last.n > (seenMove.current ?? 0)) {
       seenMove.current = last.n;
       if (fxRef.current) setCombo(last);
+      else sfx.total(last.total);
     }
   }, [state]);
 
@@ -203,12 +212,17 @@ function Room({ code, token }: { code: string; token: string }) {
   const inRack = rackTiles.filter((t) => !pendingIds.has(t.id));
 
   const myTurn = !!state && !state.finished && state.turn === state.you;
-  const clockMs = useTurnClock(
-    state?.turnSeconds ?? 0,
-    state?.turnStartedAt ?? 0,
-    skew,
-    !!state && !state.finished,
-  );
+  const now = useServerNow(skew, !!state && !state.finished);
+  const turnMs = state && state.turnSeconds > 0 && !state.finished ? state.turnSeconds * 1000 - (now - state.turnStartedAt) : null;
+  const matchMs = (p: 0 | 1) =>
+    state && state.matchSeconds > 0
+      ? state.bank[p] - (!state.finished && state.turn === p ? now - state.turnStartedAt : 0)
+      : null;
+
+  // switching the animation off mid-combo closes it straight away
+  useEffect(() => {
+    if (!prefs.fx) setCombo(null);
+  }, [prefs.fx]);
 
   // let the opponent watch the equation take shape; a short debounce keeps drags from flooding
   const draftSent = useRef('');
@@ -243,11 +257,19 @@ function Room({ code, token }: { code: string; token: string }) {
       }
       setPending((p) => [...p.filter((x) => x.tile.id !== tileId), { tile, row, col, sym: sym ?? opts[0] }]);
       setSelected(null);
+      sfx.place();
     },
     [rack, state, pending],
   );
 
-  const takeBack = (tileId: number) => setPending((p) => p.filter((x) => x.tile.id !== tileId));
+  const takeBack = (tileId: number) => {
+    if (pending.some((x) => x.tile.id === tileId)) sfx.recall();
+    setPending((p) => p.filter((x) => x.tile.id !== tileId));
+  };
+  const recallAll = () => {
+    if (pending.length) sfx.recall();
+    setPending([]);
+  };
 
   const onCellClick = (row: number, col: number) => {
     if (selected !== null) place(selected, row, col);
@@ -276,7 +298,10 @@ function Room({ code, token }: { code: string; token: string }) {
     busy.current = true;
     try {
       const res = await call<T>(event, ...args);
-      if (!res.ok) showError(res.error);
+      if (!res.ok) {
+        sfx.invalid();
+        showError(res.error);
+      }
       return res;
     } finally {
       busy.current = false;
@@ -387,7 +412,7 @@ function Room({ code, token }: { code: string; token: string }) {
           score={state.scores[opp]}
           active={oppTurn}
           sub={`${state.opponentRackCount} tiles`}
-          clock={<Clock ms={oppTurn ? clockMs : null} active={oppTurn} />}
+          clock={<Clocks turn={oppTurn ? turnMs : null} match={matchMs(opp)} active={oppTurn} />}
         />
         <ScoreCard
           label={`${state.names[me]} (YOU)`}
@@ -395,12 +420,13 @@ function Room({ code, token }: { code: string; token: string }) {
           score={state.scores[me]}
           active={myTurn}
           sub={`Bag: ${state.bagCount}`}
-          clock={<Clock ms={myTurn ? clockMs : null} active={myTurn} />}
+          clock={<Clocks turn={myTurn ? turnMs : null} match={matchMs(me)} active={myTurn} />}
         />
+        <MySettings prefs={prefs} compact />
         <div className="buttons">
           <button className="ghost" disabled={!canExchange} onClick={() => setExchangeOpen(true)}>Exchange</button>
           <button className="submit" disabled={!myTurn || pending.length === 0} onClick={submit}>SUBMIT</button>
-          <button className="ghost" disabled={pending.length === 0} onClick={() => setPending([])}>Recall</button>
+          <button className="ghost" disabled={pending.length === 0} onClick={recallAll}>Recall</button>
           <button className="ghost" onClick={shuffleRack}>Shuffle</button>
           {bagEmpty && myTurn ? <button className="ghost" onClick={() => send('game:pass')}>Pass</button> : null}
         </div>
@@ -412,39 +438,6 @@ function Room({ code, token }: { code: string; token: string }) {
           onSend={(text) => void send('chat:send', { text })}
           onSticker={sendSticker}
         />
-        <div className="fx-panel">
-          <button
-            className="fx-toggle"
-            role="switch"
-            aria-checked={fx}
-            onClick={() => {
-              const next = !fx;
-              setFxState(next);
-              setFx(next);
-              if (!next) setCombo(null);
-            }}
-          >
-            <span className={`fx-dot${fx ? ' on' : ''}`} aria-hidden />
-            Score animation: <b>{fx ? 'On' : 'Off'}</b>
-          </button>
-          {fx ? (
-            <div className="seg tiny" aria-label="Animation speed">
-              {FX_SPEEDS.map((s) => (
-                <button
-                  key={s}
-                  className={fxSpeed === s ? 'on' : ''}
-                  aria-pressed={fxSpeed === s}
-                  onClick={() => {
-                    setFxSpeedState(s);
-                    setFxSpeed(s);
-                  }}
-                >
-                  {s}x
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
         <div className="side-links">
           {!state.finished ? <button className="link" onClick={resign}>Resign</button> : null}
           <Link className="link" to="/">Home</Link>
@@ -468,7 +461,7 @@ function Room({ code, token }: { code: string; token: string }) {
           move={combo}
           who={state.names[combo.player]}
           mine={combo.player === me}
-          speed={fxSpeed}
+          speed={prefs.speed}
           onDone={() => setCombo(null)}
         />
       ) : null}

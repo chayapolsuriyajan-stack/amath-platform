@@ -189,16 +189,3 @@
   }
 }
 
-/* ---------- score animation toggle ---------- */
-.fx-panel { display: flex; flex-direction: column; gap: 5px; }
-.seg.tiny { gap: 4px; }
-.seg.tiny button { flex: 1; padding: 4px 0; font-size: 11px; }
-.fx-toggle {
-  display: flex; align-items: center; gap: 7px;
-  background: transparent; border: 1px solid #4b5563; color: var(--muted);
-  font-size: 12px; padding: 6px 10px; width: 100%;
-}
-.fx-toggle b { color: var(--text); }
-.fx-toggle:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
-.fx-dot { width: 9px; height: 9px; border-radius: 50%; background: #6b7686; flex: none; }
-.fx-dot.on { background: var(--green); box-shadow: 0 0 8px rgba(25, 169, 116, 0.9); }

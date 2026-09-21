@@ -1,6 +1,7 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import {
-  CHAT_HISTORY, FACE_ORDER, MAX_CHAT_LENGTH, RACK_SIZE, SIZE, TILE_SET, TURN_SECONDS_CHOICES,
+  CHAT_HISTORY, DEFAULT_MATCH_SECONDS, FACE_ORDER, MAX_CHAT_LENGTH, MAX_MATCH_SECONDS, RACK_SIZE, SIZE, TILE_SET,
+  TURN_SECONDS_CHOICES,
   allowedSyms, checkTimeout, exchange, inBounds, isRoomCode, isSticker, newGame, pass, playMove, resign,
 } from '@amath/shared';
 import type {
@@ -48,6 +49,10 @@ const cleanName = (n: unknown, fallback: string) => {
 const cleanTurnSeconds = (v: unknown) =>
   typeof v === 'number' && TURN_SECONDS_CHOICES.includes(v) ? v : undefined;
 
+/** whole seconds from 0 (no match clock) up to three hours; anything else falls back to 20:00 */
+const cleanMatchSeconds = (v: unknown) =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_MATCH_SECONDS ? v : DEFAULT_MATCH_SECONDS;
+
 export class Rooms {
   readonly rooms = new Map<string, Room>();
 
@@ -58,7 +63,7 @@ export class Rooms {
     }
   }
 
-  create(name: unknown, turnSeconds: unknown, socketId: string): JoinAck {
+  create(name: unknown, turnSeconds: unknown, matchSeconds: unknown, socketId: string): JoinAck {
     if (this.rooms.size >= MAX_ROOMS) return { ok: false, error: 'The server is busy, try again in a minute' };
     const code = this.newCode();
     const token = randomBytes(16).toString('hex');
@@ -67,7 +72,7 @@ export class Rooms {
       code,
       seats: [{ name: cleanName(name, 'Player 1'), token, socketId }],
       game: null,
-      settings: { turnSeconds: secs ?? 180 },
+      settings: { turnSeconds: secs ?? 180, matchSeconds: cleanMatchSeconds(matchSeconds) },
       chat: [],
       nextChatId: 1,
       lastChatAt: 0,
@@ -88,7 +93,7 @@ export class Rooms {
     if (room.seats.length >= 2) return { ok: false, error: 'This room is full' };
     const token = randomBytes(16).toString('hex');
     room.seats.push({ name: cleanName(name, 'Player 2'), token, socketId });
-    room.game = newGame(undefined, { turnSeconds: room.settings.turnSeconds });
+    room.game = newGame(undefined, { turnSeconds: room.settings.turnSeconds, matchSeconds: room.settings.matchSeconds });
     room.lastActive = Date.now();
     return { ok: true, code, token };
   }
@@ -220,7 +225,7 @@ export class Rooms {
     room.rematch[seat] = true;
     room.lastActive = Date.now();
     if (room.rematch[0] && room.rematch[1]) {
-      room.game = newGame(undefined, { turnSeconds: room.settings.turnSeconds });
+      room.game = newGame(undefined, { turnSeconds: room.settings.turnSeconds, matchSeconds: room.settings.matchSeconds });
       room.drafts = [[], []];
       room.rematch = [false, false];
       room.finishedAt = null;
@@ -277,6 +282,8 @@ export class Rooms {
       rematchVotes: room.rematch,
       turnSeconds: g.turnSeconds,
       turnStartedAt: g.turnStartedAt,
+      matchSeconds: g.matchSeconds,
+      bank: g.bank,
       serverNow: Date.now(),
       lastMove: g.lastMove,
       lastPlaced: g.lastPlaced,

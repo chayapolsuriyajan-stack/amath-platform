@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MoveBreakdown } from '@amath/shared';
+import { sfx } from '../sound/sfx';
 
 /** one beat of the animation */
 type Step =
@@ -126,6 +127,12 @@ export function ComboScreen({
       window.setTimeout(() => {
         if (s.kind === 'done') doneRef.current();
         else setStep(s);
+        // each beat of the animation has its own sound
+        if (s.kind === 'tile') sfx.chip(s.tile);
+        else if (s.kind === 'mult') sfx.mult();
+        else if (s.kind === 'subtotal') sfx.subtotal();
+        else if (s.kind === 'bingo') sfx.bingo();
+        else if (s.kind === 'total') sfx.total(move.total);
         if (s.kind === 'mult') {
           setShake('shake-hard');
           window.setTimeout(() => setShake(''), 420 / speed);

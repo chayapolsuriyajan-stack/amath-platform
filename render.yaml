@@ -1,7 +1,9 @@
 services:
   - type: web
-    name: amath-server
+    name: amath-sg
     runtime: node
+    # closest Render region to players in Thailand
+    region: singapore
     plan: free
     buildCommand: npm install
     startCommand: npm start

@@ -100,6 +100,35 @@
   100% { transform: translate(calc(-50% + var(--x2)), calc(-50% - var(--rise))) scale(0.9) rotate(var(--r2)); opacity: 0; }
 }
 
+/* ---------- clocks on the score cards ---------- */
+.clocks { display: flex; flex-direction: column; gap: 1px; }
+.clock em { font-style: normal; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; opacity: 0.7; margin-right: 2px; }
+.clock b { display: block; }
+
+/* ---------- match clock input on the home page ---------- */
+.match-row { align-items: center; }
+.clock-input {
+  width: 92px; text-align: center; font-size: 17px; font-weight: 700; letter-spacing: 1px;
+  font-variant-numeric: tabular-nums; padding: 6px 8px;
+}
+.clock-input.bad { border-color: var(--red); box-shadow: 0 0 0 2px rgba(255, 65, 54, 0.3); }
+
+/* ---------- your settings ---------- */
+.my-settings-body { display: flex; flex-direction: column; gap: 6px; }
+.my-settings-body .settings-label { margin: 4px 0 0; }
+.sound-row { align-items: center; }
+.sound-row input[type='range'] { flex: 1; min-width: 90px; padding: 0; accent-color: var(--blue); }
+.my-settings { border: 1px solid #3c4756; border-radius: 4px; }
+.my-settings-head {
+  width: 100%; display: flex; align-items: center; gap: 6px; text-align: left;
+  background: transparent; border: none; padding: 7px 10px; font-size: 12px; color: var(--text);
+}
+.my-settings-head:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); }
+.my-settings-sum { color: var(--muted); font-size: 11px; flex: 1; text-align: right; }
+.my-settings-head .chev { color: var(--muted); }
+.my-settings.open .my-settings-body { padding: 0 10px 10px; }
+.my-settings .seg button { padding: 5px 10px; font-size: 12px; }
+
 @media (prefers-reduced-motion: reduce) {
   .toast, .cell.empty .tile.draft { animation: none; }
   .floater { animation-duration: 1.2s !important; }

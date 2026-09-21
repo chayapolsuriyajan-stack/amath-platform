@@ -15,7 +15,8 @@ import { Rooms, type Room } from './rooms';
  */
 const DEFAULT_ORIGINS = [
   /^https:\/\/amath-platform(-[a-z0-9-]+)?\.vercel\.app$/,
-  /^https:\/\/amath-server\.onrender\.com$/,
+  // the game server itself on Render, in whichever region it runs
+  /^https:\/\/amath-[a-z0-9-]+\.onrender\.com$/,
   /^http:\/\/localhost:\d+$/,
   /^http:\/\/127\.0\.0\.1:\d+$/,
 ];
@@ -104,7 +105,7 @@ export function createApp() {
 
     socket.on('room:create', (a, cb) => {
       if (!allow()) return reply(cb)({ ok: false, error: 'Too many requests, slow down' });
-      const res = rooms.create(a?.name, a?.turnSeconds, socket.id);
+      const res = rooms.create(a?.name, a?.turnSeconds, a?.matchSeconds, socket.id);
       if (res.ok) {
         current = { room: rooms.rooms.get(res.code)!, seat: 0 };
         broadcast(current.room);

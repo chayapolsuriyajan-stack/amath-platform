@@ -10,14 +10,35 @@ const MAX_PASSES = 6;
 /** the Junior sheet suggests 3 minutes per turn */
 export const DEFAULT_TURN_SECONDS = 180;
 export const TURN_SECONDS_CHOICES = [0, 60, 120, 180, 300];
-/** how far past the limit a player may run before they lose */
+/** how far past either limit a player may run before they lose */
 export const OVERTIME_SECONDS = 300;
+/** each player's whole-match clock: 20:00 unless the room says otherwise */
+export const DEFAULT_MATCH_SECONDS = 1200;
+export const MAX_MATCH_SECONDS = 3 * 60 * 60;
 
 export interface GameOptions {
   /** seconds per turn, 0 for no limit */
   turnSeconds?: number;
+  /** seconds each player gets for the whole match, 0 for no limit */
+  matchSeconds?: number;
   first?: 0 | 1;
   now?: number;
+}
+
+/** "20:00" / "5:30" / "20" (minutes) → seconds; null when it doesn't parse or is out of range */
+export function parseClock(text: string): number | null {
+  const t = text.trim();
+  const m = /^(\d{1,3})(?::([0-5]\d))?$/.exec(t);
+  if (!m) return null;
+  const secs = Number(m[1]) * 60 + Number(m[2] ?? 0);
+  return secs >= 1 && secs <= MAX_MATCH_SECONDS ? secs : null;
+}
+
+/** seconds → "20:00"; negative values get a leading minus */
+export function formatClockSeconds(total: number): string {
+  const neg = total < 0;
+  const s = Math.abs(Math.round(total));
+  return `${neg ? '-' : ''}${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 export function newGame(rand: () => number = secureRandom, opts: GameOptions = {}): GameState {
@@ -35,6 +56,8 @@ export function newGame(rand: () => number = secureRandom, opts: GameOptions = {
     firstMove: true,
     turnSeconds: opts.turnSeconds ?? DEFAULT_TURN_SECONDS,
     turnStartedAt: opts.now ?? Date.now(),
+    matchSeconds: opts.matchSeconds ?? DEFAULT_MATCH_SECONDS,
+    bank: [(opts.matchSeconds ?? DEFAULT_MATCH_SECONDS) * 1000, (opts.matchSeconds ?? DEFAULT_MATCH_SECONDS) * 1000],
     lastPlaced: [[], []],
   };
 }
@@ -45,29 +68,46 @@ function push(g: GameState, entry: Omit<LogEntry, 'n'>) {
   g.log.push({ n: g.log.length + 1, ...entry });
 }
 
-function finish(g: GameState) {
+/** charge the player on turn for the time this turn took, so their match clock stops */
+function settleClock(g: GameState, now: number) {
+  if (g.matchSeconds > 0) g.bank[g.turn] -= Math.max(0, now - g.turnStartedAt);
+  g.turnStartedAt = now;
+}
+
+function finish(g: GameState, now: number) {
+  settleClock(g, now);
   g.finished = true;
   g.winner = g.scores[0] === g.scores[1] ? null : g.scores[0] > g.scores[1] ? 0 : 1;
 }
 
 function nextTurn(g: GameState, player: 0 | 1, now: number) {
+  settleClock(g, now);
   g.turn = other(player);
-  g.turnStartedAt = now;
 }
 
 /** milliseconds left on the current turn; negative means the player is into overtime */
 export function timeLeftMs(g: GameState, now = Date.now()): number {
-  if (g.turnSeconds <= 0) return Infinity;
+  if (g.turnSeconds <= 0 || g.finished) return Infinity;
   return g.turnSeconds * 1000 - (now - g.turnStartedAt);
 }
 
+/** milliseconds left on a player's match clock; it only runs during their own turns */
+export function matchLeftMs(g: GameState, player: 0 | 1, now = Date.now()): number {
+  if (g.matchSeconds <= 0) return Infinity;
+  const running = !g.finished && g.turn === player ? now - g.turnStartedAt : 0;
+  return g.bank[player] - running;
+}
+
 /**
- * End the game if the player on turn has run more than OVERTIME_SECONDS past the
- * limit. Call before acting on any move and from the server's ticker.
+ * End the game if the player on turn has run more than OVERTIME_SECONDS past
+ * either their turn limit or their match clock. Call before acting on any move
+ * and from the server's ticker.
  */
 export function checkTimeout(g: GameState, now = Date.now()): boolean {
-  if (g.finished || g.turnSeconds <= 0) return false;
-  if (timeLeftMs(g, now) > -OVERTIME_SECONDS * 1000) return false;
+  if (g.finished) return false;
+  const floor = -OVERTIME_SECONDS * 1000;
+  if (timeLeftMs(g, now) > floor && matchLeftMs(g, g.turn, now) > floor) return false;
+  settleClock(g, now);
   g.endReason = 'timeout';
   g.finished = true;
   g.winner = other(g.turn);
@@ -102,7 +142,7 @@ export function playMove(g: GameState, player: 0 | 1, placements: Placement[], n
   if (g.racks[player].length === 0 && g.bag.length === 0) {
     g.endReason = 'rack-empty';
     g.scores[player] += tileValue(g.racks[other(player)]) * 2;
-    finish(g);
+    finish(g, now);
   } else {
     nextTurn(g, player, now);
   }
@@ -139,17 +179,18 @@ export function pass(g: GameState, player: 0 | 1, now = Date.now()): MoveResult 
     g.endReason = 'passes';
     g.scores[0] -= tileValue(g.racks[0]);
     g.scores[1] -= tileValue(g.racks[1]);
-    finish(g);
+    finish(g, now);
   } else {
     nextTurn(g, player, now);
   }
   return { ok: true };
 }
 
-export function resign(g: GameState, player: 0 | 1): MoveResult {
+export function resign(g: GameState, player: 0 | 1, now = Date.now()): MoveResult {
   if (g.finished) return { ok: false, error: 'The game is over' };
   push(g, { player, type: 'resign', equations: [], score: 0 });
   g.endReason = 'resign';
+  settleClock(g, now);
   g.finished = true;
   g.winner = other(player);
   return { ok: true };

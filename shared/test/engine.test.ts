@@ -305,7 +305,7 @@ describe('turn clock', () => {
     expect(g.turn).toBe(1);
     expect(g.turnStartedAt).toBe(T0 + 30_000);
 
-    const free = newGame(seeded(), { first: 0, turnSeconds: 0, now: T0 });
+    const free = newGame(seeded(), { first: 0, turnSeconds: 0, matchSeconds: 0, now: T0 });
     expect(timeLeftMs(free, T0 + 10 ** 9)).toBe(Infinity);
     expect(checkTimeout(free, T0 + 10 ** 9)).toBe(false);
   });

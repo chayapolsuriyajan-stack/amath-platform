@@ -99,6 +99,10 @@ export interface GameState {
   turnSeconds: number;
   /** epoch ms when the current turn started */
   turnStartedAt: number;
+  /** seconds each player has for the whole match; 0 means no limit */
+  matchSeconds: number;
+  /** match time each player had left when the current turn started, in ms */
+  bank: [number, number];
   lastMove?: MoveBreakdown;
   /** squares each player filled on their most recent move */
   lastPlaced: [[number, number][], [number, number][]];
@@ -126,6 +130,8 @@ export interface PublicState {
   rematchVotes: [boolean, boolean];
   turnSeconds: number;
   turnStartedAt: number;
+  matchSeconds: number;
+  bank: [number, number];
   /** server clock, so the client can correct for clock skew */
   serverNow: number;
   lastMove?: MoveBreakdown;

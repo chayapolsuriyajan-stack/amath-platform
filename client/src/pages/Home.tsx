@@ -1,28 +1,39 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { DEFAULT_TURN_SECONDS, TURN_SECONDS_CHOICES, isRoomCode } from '@amath/shared';
+import {
+  DEFAULT_MATCH_SECONDS, DEFAULT_TURN_SECONDS, TURN_SECONDS_CHOICES, formatClockSeconds, isRoomCode, parseClock,
+} from '@amath/shared';
 import type { JoinAck } from '@amath/shared';
+import { MySettings, usePrefs } from '../components/MySettings';
 import { call, getName, setName, setToken } from '../net/socket';
-import { FX_SPEEDS, getFx, getFxSpeed, setFx, setFxSpeed, type FxSpeed } from '../storage/prefs';
 
 const timeLabel = (s: number) => (s === 0 ? 'No limit' : `${s / 60} min`);
 
 export function Home() {
   const nav = useNavigate();
+  const prefs = usePrefs();
   const [name, setNameState] = useState(getName());
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [turnSeconds, setTurnSeconds] = useState(DEFAULT_TURN_SECONDS);
-  const [fx, setFxState] = useState(getFx);
-  const [fxSpeed, setFxSpeedState] = useState<FxSpeed>(getFxSpeed);
+  const [matchOn, setMatchOn] = useState(true);
+  const [matchText, setMatchText] = useState(formatClockSeconds(DEFAULT_MATCH_SECONDS));
+  const matchSecs = parseClock(matchText);
+  const matchBad = matchOn && matchSecs === null;
 
   const enter = async (event: 'room:create' | 'room:join') => {
     setError('');
     if (event === 'room:join' && !isRoomCode(code)) return setError('Enter the 6-digit room code');
+    if (event === 'room:create' && matchBad) return setError('Write the match clock as minutes:seconds, like 20:00');
     setBusy(true);
     setName(name.trim());
-    const res = await call<JoinAck>(event, { name: name.trim(), code, turnSeconds });
+    const res = await call<JoinAck>(event, {
+      name: name.trim(),
+      code,
+      turnSeconds,
+      matchSeconds: matchOn ? matchSecs ?? DEFAULT_MATCH_SECONDS : 0,
+    });
     setBusy(false);
     if (!res.ok) return setError(res.error);
     setToken(res.code, res.token);
@@ -43,7 +54,34 @@ export function Home() {
         </label>
 
         <fieldset className="settings">
-          <legend>Game settings</legend>
+          <legend>Game settings (for both players)</legend>
+
+          <span className="settings-label">Match clock, per player</span>
+          <div className="seg match-row">
+            <button type="button" className={matchOn ? 'on' : ''} aria-pressed={matchOn} onClick={() => setMatchOn(true)}>On</button>
+            <button type="button" className={!matchOn ? 'on' : ''} aria-pressed={!matchOn} onClick={() => setMatchOn(false)}>Off</button>
+            {matchOn ? (
+              <input
+                className={`clock-input${matchBad ? ' bad' : ''}`}
+                value={matchText}
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="20:00"
+                aria-label="Match clock, minutes:seconds"
+                aria-invalid={matchBad}
+                onChange={(e) => setMatchText(e.target.value.replace(/[^\d:]/g, ''))}
+                onBlur={() => matchSecs !== null && setMatchText(formatClockSeconds(matchSecs))}
+              />
+            ) : null}
+          </div>
+          <p className="settings-note">
+            {!matchOn
+              ? 'No match clock: only the turn limit below applies.'
+              : matchBad
+                ? 'Use minutes:seconds, from 0:01 up to 180:00.'
+                : `Each player gets ${formatClockSeconds(matchSecs!)} for the whole game. It only runs on your own turns and keeps going past zero. Go 5 minutes over and you lose.`}
+          </p>
+
           <span className="settings-label">Time per turn</span>
           <div className="seg">
             {TURN_SECONDS_CHOICES.map((s) => (
@@ -60,33 +98,18 @@ export function Home() {
           </div>
           <p className="settings-note">
             {turnSeconds === 0
-              ? 'Players can take as long as they like.'
-              : 'The clock keeps running past zero. Go 5 minutes over and you lose the game.'}
+              ? 'Players can take as long as they like on each turn.'
+              : 'Resets every turn and keeps running past zero. Go 5 minutes over and you lose the game.'}
           </p>
+        </fieldset>
 
-          <span className="settings-label">Score animation</span>
-          <div className="seg">
-            <button type="button" className={fx ? 'on' : ''} aria-pressed={fx} onClick={() => { setFxState(true); setFx(true); }}>On</button>
-            <button type="button" className={!fx ? 'on' : ''} aria-pressed={!fx} onClick={() => { setFxState(false); setFx(false); }}>Off</button>
-            {fx
-              ? FX_SPEEDS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className={fxSpeed === s ? 'on' : ''}
-                    aria-pressed={fxSpeed === s}
-                    onClick={() => { setFxSpeedState(s); setFxSpeed(s); }}
-                  >
-                    {s}x
-                  </button>
-                ))
-              : null}
-          </div>
-          <p className="settings-note">Your own setting only, and you can change it during the game.</p>
+        <fieldset className="settings">
+          <legend>Your settings (only you)</legend>
+          <MySettings prefs={prefs} />
         </fieldset>
 
         <div className="home-actions">
-          <button disabled={busy} onClick={() => enter('room:create')}>New Game</button>
+          <button disabled={busy || matchBad} onClick={() => enter('room:create')}>New Game</button>
         </div>
 
         <form
