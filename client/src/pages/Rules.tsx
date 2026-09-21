@@ -8,8 +8,8 @@ export function Rules() {
         <h1>Basic Rules</h1>
 
         <h2>Equations</h2>
-        <p>Only unary minus with non-zero number is allowed.</p>
-        <pre>{'-6 = 4 - 10\n+7 = 5 + 2'}</pre>
+        <p>Only a minus sign may go in front of a number, and never in front of zero. A plus sign can’t lead an equation.</p>
+        <pre>{'-6 = 4 - 10\n-5 = -5\n+7 = 5 + 2   ✗\n6 + -13 = -7   ✗'}</pre>
         <p>Only 3 digits can be concatenated.</p>
         <pre>{'123 = 100 + 23\n1234 = 1000 + 234   ✗'}</pre>
         <p>Zero left padding is not a valid value.</p>

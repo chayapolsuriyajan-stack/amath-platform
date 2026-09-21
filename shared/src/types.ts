@@ -63,6 +63,15 @@ export interface LogEntry {
   bingo?: boolean;
 }
 
+/** a tile the player on turn has put down but not submitted yet, as the opponent sees it */
+export interface DraftTile {
+  row: number;
+  col: number;
+  face: string;
+  sym: string;
+  points: number;
+}
+
 export interface ChatMessage {
   id: number;
   player: 0 | 1;
@@ -91,6 +100,8 @@ export interface GameState {
   /** epoch ms when the current turn started */
   turnStartedAt: number;
   lastMove?: MoveBreakdown;
+  /** squares each player filled on their most recent move */
+  lastPlaced: [[number, number][], [number, number][]];
 }
 
 /** What one player is allowed to see. */
@@ -118,6 +129,9 @@ export interface PublicState {
   /** server clock, so the client can correct for clock skew */
   serverNow: number;
   lastMove?: MoveBreakdown;
+  lastPlaced: [[number, number][], [number, number][]];
+  /** tiles the opponent is trying out on their turn, before submitting */
+  opponentDraft: DraftTile[];
   chat: ChatMessage[];
 }
 

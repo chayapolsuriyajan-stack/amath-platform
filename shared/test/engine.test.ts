@@ -36,12 +36,32 @@ describe('Junior Edition tile set', () => {
   it('gives every tile a unique id', () => {
     expect(new Set(createBag().map((t) => t.id)).size).toBe(70);
   });
+  it('hands out ids after shuffling, so an id reveals nothing about the face', () => {
+    // with ids assigned first, id 0 would always be a '0' tile
+    const faces = new Set(Array.from({ length: 40 }, () => createBag().find((t) => t.id === 0)!.face));
+    expect(faces.size).toBeGreaterThan(3);
+    const bag = createBag();
+    expect(bag.every((t, i) => t.id === i)).toBe(true);
+  });
 });
 
 describe('equations (rules page examples)', () => {
-  it('accepts unary minus / plus in front of a non-zero number', () => {
+  it('accepts a minus in front of a non-zero number', () => {
     expect(ok('-6=4-10')).toBe(true);
-    expect(ok('+7=5+2')).toBe(true);
+    expect(ok('-5=-5')).toBe(true);
+  });
+  it('never allows a plus in front of a number, on either side', () => {
+    expect(ok('+7=5+2')).toBe(false);
+    expect(ok('7=+7')).toBe(false);
+    expect(checkEquation(syms('+7=5+2'))).toEqual({ ok: false, error: 'A plus sign cannot go in front of a number, only a minus can' });
+  });
+  it('never allows x or division in front of a number', () => {
+    expect(ok('×2=2')).toBe(false);
+    expect(ok('2=÷2')).toBe(false);
+  });
+  it('says what each side came to when they differ', () => {
+    expect(checkEquation(syms('2+2=5'))).toEqual({ ok: false, error: 'The two sides are not equal (4 ≠ 5)' });
+    expect(checkEquation(syms('1÷2=1'))).toEqual({ ok: false, error: 'The two sides are not equal (1/2 ≠ 1)' });
   });
   it('rejects a sign before zero', () => {
     expect(ok('-0=0')).toBe(false);

@@ -32,16 +32,31 @@ export function allowedSyms(face: string): string[] {
   return [face];
 }
 
-export function createBag(rand: () => number = Math.random): Tile[] {
-  const tiles: Tile[] = [];
-  let id = 0;
-  for (const [face, [count, points]] of Object.entries(TILE_SET)) {
-    for (let i = 0; i < count; i++) tiles.push({ id: id++, face, points });
+/**
+ * A random number in [0, 1) from the platform's cryptographic generator.
+ * Math.random is fast but its state can be reconstructed from enough output,
+ * which would let a player predict the bag.
+ */
+export function secureRandom(): number {
+  const c = (globalThis as { crypto?: { getRandomValues?: (a: Uint32Array) => Uint32Array } }).crypto;
+  if (c?.getRandomValues) {
+    const a = new Uint32Array(1);
+    c.getRandomValues(a);
+    return a[0] / 2 ** 32;
   }
-  return shuffle(tiles, rand);
+  return Math.random();
 }
 
-export function shuffle<T>(arr: T[], rand: () => number = Math.random): T[] {
+export function createBag(rand: () => number = secureRandom): Tile[] {
+  const faces: [string, number][] = [];
+  for (const [face, [count, points]] of Object.entries(TILE_SET)) {
+    for (let i = 0; i < count; i++) faces.push([face, points]);
+  }
+  // ids are handed out after shuffling, so an id says nothing about the face behind it
+  return shuffle(faces, rand).map(([face, points], id) => ({ id, face, points }));
+}
+
+export function shuffle<T>(arr: T[], rand: () => number = secureRandom): T[] {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));

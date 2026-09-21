@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_CHAT_LENGTH } from '@amath/shared';
-import type { ChatMessage } from '@amath/shared';
+import type { ChatMessage, Sticker } from '@amath/shared';
+import { StickerBar } from './Stickers';
 
 interface Props {
   messages: ChatMessage[];
   you: 0 | 1;
   names: [string, string];
   onSend: (text: string) => void;
+  onSticker: (sticker: Sticker, from: DOMRect) => void;
 }
 
-export function Chat({ messages, you, names, onSend }: Props) {
+export function Chat({ messages, you, names, onSend, onSticker }: Props) {
   const [text, setText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const lastId = messages.length ? messages[messages.length - 1].id : 0;
@@ -37,6 +39,7 @@ export function Chat({ messages, you, names, onSend }: Props) {
           </p>
         ))}
       </div>
+      <StickerBar onPick={onSticker} />
       <form
         className="chat-form"
         onSubmit={(e) => {

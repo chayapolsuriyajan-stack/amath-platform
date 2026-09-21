@@ -1,6 +1,6 @@
 import { emptyBoard } from './board';
 import { evaluateMove } from './move';
-import { RACK_SIZE, createBag, shuffle, tileValue } from './tiles';
+import { RACK_SIZE, createBag, secureRandom, shuffle, tileValue } from './tiles';
 import type { GameState, LogEntry, MoveResult, Placement, Tile } from './types';
 
 const MIN_BAG_FOR_EXCHANGE = 5;
@@ -20,7 +20,7 @@ export interface GameOptions {
   now?: number;
 }
 
-export function newGame(rand: () => number = Math.random, opts: GameOptions = {}): GameState {
+export function newGame(rand: () => number = secureRandom, opts: GameOptions = {}): GameState {
   const bag = createBag(rand);
   const racks: [Tile[], Tile[]] = [bag.splice(0, RACK_SIZE), bag.splice(0, RACK_SIZE)];
   return {
@@ -35,6 +35,7 @@ export function newGame(rand: () => number = Math.random, opts: GameOptions = {}
     firstMove: true,
     turnSeconds: opts.turnSeconds ?? DEFAULT_TURN_SECONDS,
     turnStartedAt: opts.now ?? Date.now(),
+    lastPlaced: [[], []],
   };
 }
 
@@ -86,6 +87,7 @@ export function playMove(g: GameState, player: 0 | 1, placements: Placement[], n
   g.racks[player] = g.racks[player].filter((t) => !used.has(t.id));
   g.racks[player].push(...g.bag.splice(0, RACK_SIZE - g.racks[player].length));
   g.scores[player] += move.score;
+  g.lastPlaced[player] = move.placed.map((p) => [p.r, p.c]);
   g.passes = 0;
   g.firstMove = false;
   push(g, { player, type: 'move', equations: move.equations, score: move.score, bingo: move.bingo });

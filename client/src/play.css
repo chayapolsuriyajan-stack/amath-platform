@@ -1,0 +1,106 @@
+/* Board highlights, the error popup, and chat stickers. */
+
+/* ---------- last move highlights ---------- */
+/* the opponent's most recent move */
+.tile.on-board.last-theirs {
+  background: #ffe066;
+  box-shadow: inset 0 0 0 2px #e0a800, 0 0 10px rgba(255, 215, 0, 0.55);
+}
+/* your own most recent move */
+.tile.on-board.last-mine {
+  background: #c7e6ff;
+  box-shadow: inset 0 0 0 2px #5aaeea, 0 0 10px rgba(90, 174, 234, 0.45);
+}
+
+/* ---------- the opponent building their equation ---------- */
+.cell.empty .tile.draft {
+  position: absolute; inset: 0;
+  background: rgba(255, 65, 54, 0.22);
+  color: #ffd9d6;
+  box-shadow: inset 0 0 0 2px var(--red), 0 0 12px rgba(255, 65, 54, 0.7);
+  animation: draftIn 0.18s ease-out, draftPulse 1.4s ease-in-out 0.18s infinite;
+  pointer-events: none;
+}
+.cell.empty .tile.draft sub { color: #ffb3ad; }
+@keyframes draftIn { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes draftPulse { 50% { box-shadow: inset 0 0 0 2px var(--red), 0 0 20px rgba(255, 65, 54, 0.95); } }
+.status .building { color: #ff7b72; font-weight: 600; }
+
+/* ---------- invalid move popup ---------- */
+.toast-wrap {
+  position: fixed; top: 14px; left: 0; right: 0; z-index: 90;
+  display: flex; justify-content: center; padding: 0 16px; pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex; align-items: flex-start; gap: 12px; text-align: left;
+  width: min(480px, 100%); padding: 12px 14px;
+  background: #3a1d22; border: 1px solid #ff4136; border-radius: 8px; color: #ffe3e0;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 0 3px rgba(255, 65, 54, 0.18);
+  animation: toastIn 0.32s cubic-bezier(0.2, 1.4, 0.4, 1), toastShake 0.4s ease-in-out 0.3s;
+}
+.toast:hover:not(:disabled) { background: #432127; }
+.toast-icon {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--red); color: #fff; font-weight: 900; font-size: 16px;
+}
+.toast-body { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.toast-body b { font-size: 15px; color: #fff; }
+.toast-body code {
+  align-self: flex-start; font-size: 17px; font-weight: 700; letter-spacing: 1px;
+  padding: 2px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.3); color: #ffd6d2; word-break: break-all;
+}
+.toast-body span { font-size: 13px; line-height: 1.4; }
+.toast-x { flex: none; font-size: 20px; line-height: 1; opacity: 0.6; }
+@keyframes toastIn { from { transform: translateY(-120%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes toastShake {
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+/* ---------- stickers ---------- */
+.sticker-bar { display: flex; gap: 2px; padding: 4px; border-top: 1px solid #3c4756; background: #202733; }
+.sticker-bar button {
+  flex: 1; padding: 4px 0; border: none; background: transparent; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+}
+.sticker-bar button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+.sticker-bar button:active { transform: scale(0.88); }
+.sticker-emoji { font-size: 19px; line-height: 1; }
+.sticker-gg {
+  font-size: 11px; font-weight: 900; letter-spacing: 1px; line-height: 1;
+  padding: 4px 5px; border-radius: 5px; color: #1a1206;
+  background: linear-gradient(135deg, #ffd028, #ff8a00);
+  box-shadow: 0 0 0 1px #fff3 inset;
+}
+
+.sticker-layer { position: fixed; inset: 0; pointer-events: none; z-index: 85; overflow: hidden; }
+.floater {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  animation-name: ghostFloat;
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: forwards;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45));
+}
+.floater .sticker-emoji { font-size: 42px; }
+.floater .sticker-gg { font-size: 22px; padding: 7px 10px; border-radius: 9px; }
+/* drift up along a wandering path and flicker a little, like a ghost, then fade out */
+@keyframes ghostFloat {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
+  8% { transform: translate(calc(-50% + var(--x1) * 0.3), calc(-50% - var(--rise) * 0.04)) scale(1.15) rotate(var(--r1)); opacity: 1; }
+  28% { transform: translate(calc(-50% + var(--x1)), calc(-50% - var(--rise) * 0.24)) scale(1) rotate(var(--r2)); opacity: 0.95; }
+  46% { transform: translate(calc(-50% + var(--x2)), calc(-50% - var(--rise) * 0.44)) scale(1.05) rotate(var(--r1)); opacity: 0.62; }
+  60% { transform: translate(calc(-50% + var(--x3)), calc(-50% - var(--rise) * 0.6)) scale(0.97) rotate(var(--r2)); opacity: 0.9; }
+  78% { transform: translate(calc(-50% + var(--x4)), calc(-50% - var(--rise) * 0.8)) scale(1) rotate(var(--r1)); opacity: 0.55; }
+  100% { transform: translate(calc(-50% + var(--x2)), calc(-50% - var(--rise))) scale(0.9) rotate(var(--r2)); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .cell.empty .tile.draft { animation: none; }
+  .floater { animation-duration: 1.2s !important; }
+}

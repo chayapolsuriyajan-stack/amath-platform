@@ -18,6 +18,7 @@ class Frac {
   div(o: Frac) { return new Frac(this.n * o.d, this.d * o.n); }
   isZero() { return this.n === 0n; }
   eq(o: Frac) { return this.n === o.n && this.d === o.d; }
+  toString() { return this.d === 1n ? `${this.n}` : `${this.n}/${this.d}`; }
 }
 
 function gcd(a: bigint, b: bigint): bigint {
@@ -73,12 +74,15 @@ function evalSide(toks: Tok[]): Frac | string {
   let i = 0;
   let negate = false;
   const first = toks[0];
-  if (first.t === 'op' && (first.v === '-' || first.v === '+')) {
-    negate = first.v === '-';
+  if (first.t === 'op') {
+    // only a minus may lead a side: "-6 = 4 - 10" is fine, "+7 = 5 + 2" is not
+    if (first.v === '+') return 'A plus sign cannot go in front of a number, only a minus can';
+    if (first.v !== '-') return `An equation cannot start with ${first.v}`;
+    negate = true;
     i = 1;
     const next = toks[1];
-    if (!next || next.t !== 'num') return 'A sign must be followed by a number';
-    if (next.v === 0n) return 'A sign cannot be put before zero';
+    if (!next || next.t !== 'num') return 'A minus sign must be followed by a number';
+    if (next.v === 0n) return 'A minus sign cannot be put before zero';
   }
   const terms: { op: string; val: Frac }[] = [];
   let expectNum = true;
@@ -132,7 +136,7 @@ export function checkEquation(syms: string[]): EquationResult {
   for (const side of sides) {
     const v = evalSide(side);
     if (typeof v === 'string') return { ok: false, error: v };
-    if (ref && !ref.eq(v)) return { ok: false, error: 'The two sides are not equal' };
+    if (ref && !ref.eq(v)) return { ok: false, error: `The two sides are not equal (${ref} ≠ ${v})` };
     ref = v;
   }
   return { ok: true };
