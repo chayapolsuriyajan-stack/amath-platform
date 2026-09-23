@@ -296,6 +296,8 @@ export class Rooms {
       serverNow: Date.now(),
       lastMove: g.lastMove,
       lastPlaced: g.lastPlaced,
+      leftover: g.leftover,
+      endAdjust: g.endAdjust,
       opponentDraft: room.drafts[seat === 0 ? 1 : 0],
       chat: room.chat,
     };

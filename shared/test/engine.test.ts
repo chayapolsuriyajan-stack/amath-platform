@@ -233,15 +233,37 @@ describe('game flow', () => {
     expect(exchange(g, 1, [g.racks[1][0].id]).ok).toBe(false);
   });
 
-  it('pass is only allowed when the bag is empty and 6 passes end the game', () => {
+  it('lets a player pass at any time, even with a full bag', () => {
     const g = newGame(seeded(), { first: 0, matchSeconds: 0 });
-    expect(pass(g, 0).ok).toBe(false);
-    g.bag = [];
-    g.scores = [10, 10];
-    for (let i = 0; i < 6; i++) expect(pass(g, (i % 2) as 0 | 1).ok).toBe(true);
+    expect(g.bag.length).toBeGreaterThan(5);
+    expect(pass(g, 0).ok).toBe(true);
+    expect(g.turn).toBe(1);
+    expect(g.finished).toBe(false);
+  });
+
+  it('ends after three passes each in a row, each player losing their own leftover tiles', () => {
+    const g = newGame(seeded(), { first: 0, matchSeconds: 0 });
+    g.scores = [30, 30];
+    g.racks[0] = [tile('9', 2), tile('13', 6)];
+    g.racks[1] = [tile('?', 0), tile('1', 1)];
+    for (let i = 0; i < 5; i++) expect(pass(g, (i % 2) as 0 | 1).ok).toBe(true);
+    expect(g.finished).toBe(false); // five passes: not yet
+    expect(pass(g, 1).ok).toBe(true);
     expect(g.finished).toBe(true);
     expect(g.endReason).toBe('passes');
-    expect(g.scores[0]).toBeLessThan(10);
+    expect(g.leftover).toEqual([8, 1]); // a blank is worth nothing
+    expect(g.endAdjust).toEqual([-8, -1]);
+    expect(g.scores).toEqual([22, 29]);
+    expect(g.winner).toBe(1);
+  });
+
+  it('only counts passes in a row: a move or an exchange starts the count again', () => {
+    const g = newGame(seeded(), { first: 0, matchSeconds: 0 });
+    for (let i = 0; i < 4; i++) pass(g, (i % 2) as 0 | 1);
+    expect(exchange(g, 0, [g.racks[0][0].id]).ok).toBe(true);
+    expect(g.passes).toBe(0);
+    for (let i = 0; i < 5; i++) pass(g, ((i + 1) % 2) as 0 | 1);
+    expect(g.finished).toBe(false);
   });
 
   it('ending by an empty rack gives the winner 2× the opponent rack', () => {
@@ -254,6 +276,9 @@ describe('game flow', () => {
     expect(g.finished).toBe(true);
     expect(g.endReason).toBe('rack-empty');
     expect(g.scores[0]).toBe(7 + 8);
+    expect(g.leftover).toEqual([0, 4]);
+    expect(g.endAdjust).toEqual([8, 0]); // the finisher gains, the other score is untouched
+    expect(g.scores[1]).toBe(0);
     expect(g.winner).toBe(0);
   });
 

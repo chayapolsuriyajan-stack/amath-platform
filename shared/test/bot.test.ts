@@ -126,10 +126,9 @@ describe('when the bot is stuck', () => {
     expect(give.length).toBeGreaterThan(0);
   });
 
-  it('can pass whenever an exchange is not possible', () => {
+  it('can always pass when it has nothing to play', () => {
     const g = newGame(() => 0.5, { first: 0, matchSeconds: 0 });
-    expect(pass(g, 0).ok).toBe(false); // plenty in the bag: exchange instead
-    g.bag = g.bag.slice(0, 3);
+    g.bag = g.bag.slice(0, 3); // too few to exchange
     expect(pass(g, 0).ok).toBe(true);
   });
 

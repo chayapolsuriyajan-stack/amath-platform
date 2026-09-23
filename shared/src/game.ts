@@ -155,8 +155,12 @@ export function playMove(g: GameState, player: 0 | 1, placements: Placement[], n
   };
 
   if (g.racks[player].length === 0 && g.bag.length === 0) {
+    // rule 1 and 2: the other player's leftover tiles count double, for the player who finished
     g.endReason = 'rack-empty';
-    g.scores[player] += tileValue(g.racks[other(player)]) * 2;
+    const left = tileValue(g.racks[other(player)]);
+    g.leftover = player === 0 ? [0, left] : [left, 0];
+    g.endAdjust = player === 0 ? [left * 2, 0] : [0, left * 2];
+    g.scores[player] += left * 2;
     finish(g, now);
   } else {
     nextTurn(g, player, now);
@@ -187,14 +191,15 @@ export function pass(g: GameState, player: 0 | 1, now = Date.now()): MoveResult 
   if (checkTimeout(g, now)) return { ok: false, error: 'You ran out of time' };
   if (g.finished) return { ok: false, error: 'The game is over' };
   if (g.turn !== player) return { ok: false, error: 'It is not your turn' };
-  // with 5 or more tiles in the bag you can exchange instead; below that, passing is the way out
-  if (g.bag.length >= MIN_BAG_FOR_EXCHANGE) return { ok: false, error: 'You can exchange tiles instead of passing' };
   g.passes++;
   push(g, { player, type: 'pass', equations: [], score: 0 });
   if (g.passes >= MAX_PASSES) {
+    // rule 3: three passes each in a row, and each player loses what is left on their own rack
     g.endReason = 'passes';
-    g.scores[0] -= tileValue(g.racks[0]);
-    g.scores[1] -= tileValue(g.racks[1]);
+    g.leftover = [tileValue(g.racks[0]), tileValue(g.racks[1])];
+    g.endAdjust = [-g.leftover[0], -g.leftover[1]];
+    g.scores[0] += g.endAdjust[0];
+    g.scores[1] += g.endAdjust[1];
     finish(g, now);
   } else {
     nextTurn(g, player, now);

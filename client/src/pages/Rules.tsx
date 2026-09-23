@@ -67,8 +67,8 @@ export function Rules() {
 
         <h2>Exchange and pass</h2>
         <p>
-          You can exchange tiles while there are at least 5 tiles in the bag; it uses your turn. Once fewer than 5 are left and
-          exchanging is no longer possible, you can pass instead.
+          You can exchange one or more tiles instead of playing, as long as there are at least 5 tiles in the bag; it uses your
+          turn. You can pass on any turn.
         </p>
 
         <h2>Playing the computer</h2>
@@ -79,11 +79,20 @@ export function Rules() {
         </p>
 
         <h2>End game</h2>
-        <p>There are two ways of ending game.</p>
+        <p>The game ends in one of four ways. The highest score wins, and equal scores are a draw.</p>
         <ol>
-          <li>Ran out of both common items in the bag and one’s deck items. That player adds double the value of the other player’s remaining tiles.</li>
-          <li>Continually passed the game 3 times by each player. Each player loses the value of their remaining tiles.</li>
+          <li>
+            <b>A player uses every tile</b> while the bag is empty. The points on the other player’s leftover tiles are doubled
+            and added to the score of the player who finished. The other player’s score is not reduced.
+          </li>
+          <li>
+            <b>Both players pass three times each in a row</b>, so nobody can continue. Each player then loses the points on the
+            tiles left on their own rack. Any move or exchange starts the count again.
+          </li>
+          <li><b>A player goes 5 minutes past zero</b> on their match clock. They lose, whatever the score.</li>
+          <li><b>A player resigns.</b> They lose, whatever the score.</li>
         </ol>
+        <p>A blank is worth nothing, so it never adds or takes away points at the end.</p>
 
         <h2>Multiplayer and history</h2>
         <p>

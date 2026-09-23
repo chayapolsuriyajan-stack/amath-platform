@@ -106,6 +106,10 @@ export interface GameState {
   lastMove?: MoveBreakdown;
   /** squares each player filled on their most recent move */
   lastPlaced: [[number, number][], [number, number][]];
+  /** point value of the tiles each player still held when the game ended */
+  leftover?: [number, number];
+  /** what the ending added to or took from each score */
+  endAdjust?: [number, number];
 }
 
 /** What one player is allowed to see. */
@@ -138,6 +142,8 @@ export interface PublicState {
   serverNow: number;
   lastMove?: MoveBreakdown;
   lastPlaced: [[number, number][], [number, number][]];
+  leftover?: [number, number];
+  endAdjust?: [number, number];
   /** tiles the opponent is trying out on their turn, before submitting */
   opponentDraft: DraftTile[];
   chat: ChatMessage[];

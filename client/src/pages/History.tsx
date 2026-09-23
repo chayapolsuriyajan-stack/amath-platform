@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { clearHistory, deleteMatch, loadHistory, type HistoryMove, type MatchRecord } from '../storage/history';
 
-const REASON: Record<string, string> = { 'rack-empty': 'Tiles used up', passes: 'Passes', resign: 'Resigned' };
+const REASON: Record<string, string> = { 'rack-empty': 'Tiles used up', passes: 'Passes', resign: 'Resigned', timeout: 'Out of time' };
 
 function moveText(m: HistoryMove): string {
   if (m.type === 'pass') return 'passed';

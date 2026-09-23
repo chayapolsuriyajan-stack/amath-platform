@@ -364,8 +364,8 @@ function Room({ code, token }: { code: string; token: string }) {
   const opp = me === 0 ? 1 : 0;
   const oppGone = !state.connected[opp];
   const oppTurn = !state.finished && state.turn === opp;
-  // exchanging needs 5 tiles in the bag; below that, passing is allowed instead
-  const canPass = myTurn && state.bagCount < 5;
+  // passing is allowed on any turn (exchanging still needs 5 tiles in the bag)
+  const canPass = myTurn;
   const drawKey = state.startDraw && state.log.length === 0 ? `${state.startDraw.faces.join('-')}@${state.turnStartedAt}` : null;
   const showDraw = !!drawKey && drawShown !== `${drawKey}:done`;
   if (showDraw && drawShown !== drawKey) setDrawShown(drawKey);

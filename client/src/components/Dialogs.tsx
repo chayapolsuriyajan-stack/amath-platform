@@ -61,11 +61,42 @@ export function ExchangeDialog({ rack, onConfirm, onCancel }: { rack: Tile[]; on
   );
 }
 
-const REASON: Record<string, string> = {
-  'rack-empty': 'A player used all their tiles. The other player’s remaining tiles were counted double for the winner.',
-  passes: 'Three passes each in a row. Each player lost the value of their remaining tiles.',
-  resign: 'A player resigned.',
-};
+const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+
+/** why the game ended, and what the ending did to each score, in plain words */
+function endingLines(state: PublicState): string[] {
+  const me = state.you;
+  const who = (p: 0 | 1) => (p === me ? 'You' : state.names[p]);
+  const loser = state.winner === 0 ? 1 : 0;
+  const left = state.leftover;
+  const adj = state.endAdjust;
+  switch (state.endReason) {
+    case 'rack-empty': {
+      const fin: 0 | 1 = adj && adj[1] > adj[0] ? 1 : 0;
+      const other: 0 | 1 = fin === 0 ? 1 : 0;
+      const lines = [`${who(fin)} used every tile with the bag empty.`];
+      if (left && adj) {
+        lines.push(
+          left[other] > 0
+            ? `${who(other)} had ${left[other]} points left, doubled to ${signed(adj[fin])} for ${fin === me ? 'you' : state.names[fin]}.`
+            : `${who(other)} had nothing but blanks left, so no bonus.`,
+        );
+      }
+      return lines;
+    }
+    case 'passes': {
+      const lines = ['Three passes each in a row, so nobody could continue.'];
+      if (left && adj) lines.push(`Tiles left: ${who(0)} ${signed(adj[0])}, ${who(1)} ${signed(adj[1])}.`);
+      return lines;
+    }
+    case 'resign':
+      return [`${who(loser)} resigned.`];
+    case 'timeout':
+      return [`${who(loser)} went 5 minutes past zero on the match clock.`];
+    default:
+      return [];
+  }
+}
 
 export function GameOverDialog({
   state, onRematch, onHome, onHistory, onClose,
@@ -82,7 +113,9 @@ export function GameOverDialog({
         <div><span>{state.names[me]} (you)</span><b>{state.scores[me]}</b></div>
         <div><span>{state.names[opp]}</span><b>{state.scores[opp]}</b></div>
       </div>
-      <p className="muted">{state.endReason ? REASON[state.endReason] : ''}</p>
+      {endingLines(state).map((line) => (
+        <p key={line} className="muted">{line}</p>
+      ))}
       <p className="muted">Saved to your match history on this device.</p>
       <div className="modal-actions">
         <button className="ghost" onClick={onHome}>Home</button>
