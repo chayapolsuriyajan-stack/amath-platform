@@ -16,14 +16,12 @@ export type Ack = { ok: true } | { ok: false; error: string };
 export type JoinAck = { ok: true; code: string; token: string } | { ok: false; error: string };
 
 export interface RoomSettings {
-  /** seconds per turn, 0 for no limit */
-  turnSeconds: number;
   /** seconds per player for the whole match, 0 for no limit */
   matchSeconds: number;
 }
 
 export interface ClientToServer {
-  'room:create': (a: { name: string; turnSeconds?: number; matchSeconds?: number }, cb: (r: JoinAck) => void) => void;
+  'room:create': (a: { name: string; matchSeconds?: number }, cb: (r: JoinAck) => void) => void;
   'room:join': (a: { code: string; name: string }, cb: (r: JoinAck) => void) => void;
   'room:rejoin': (a: { code: string; token: string }, cb: (r: Ack) => void) => void;
   'game:move': (a: { placements: Placement[] }, cb: (r: Ack) => void) => void;

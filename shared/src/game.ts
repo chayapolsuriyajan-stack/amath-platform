@@ -7,18 +7,13 @@ const MIN_BAG_FOR_EXCHANGE = 5;
 /** 3 passes each, both players combined */
 const MAX_PASSES = 6;
 
-/** the Junior sheet suggests 3 minutes per turn */
-export const DEFAULT_TURN_SECONDS = 180;
-export const TURN_SECONDS_CHOICES = [0, 60, 120, 180, 300];
-/** how far past either limit a player may run before they lose */
+/** how far past the limit a player may run before they lose */
 export const OVERTIME_SECONDS = 300;
 /** each player's whole-match clock: 20:00 unless the room says otherwise */
 export const DEFAULT_MATCH_SECONDS = 1200;
 export const MAX_MATCH_SECONDS = 3 * 60 * 60;
 
 export interface GameOptions {
-  /** seconds per turn, 0 for no limit */
-  turnSeconds?: number;
   /** seconds each player gets for the whole match, 0 for no limit */
   matchSeconds?: number;
   first?: 0 | 1;
@@ -54,7 +49,6 @@ export function newGame(rand: () => number = secureRandom, opts: GameOptions = {
     log: [],
     finished: false,
     firstMove: true,
-    turnSeconds: opts.turnSeconds ?? DEFAULT_TURN_SECONDS,
     turnStartedAt: opts.now ?? Date.now(),
     matchSeconds: opts.matchSeconds ?? DEFAULT_MATCH_SECONDS,
     bank: [(opts.matchSeconds ?? DEFAULT_MATCH_SECONDS) * 1000, (opts.matchSeconds ?? DEFAULT_MATCH_SECONDS) * 1000],
@@ -85,12 +79,6 @@ function nextTurn(g: GameState, player: 0 | 1, now: number) {
   g.turn = other(player);
 }
 
-/** milliseconds left on the current turn; negative means the player is into overtime */
-export function timeLeftMs(g: GameState, now = Date.now()): number {
-  if (g.turnSeconds <= 0 || g.finished) return Infinity;
-  return g.turnSeconds * 1000 - (now - g.turnStartedAt);
-}
-
 /** milliseconds left on a player's match clock; it only runs during their own turns */
 export function matchLeftMs(g: GameState, player: 0 | 1, now = Date.now()): number {
   if (g.matchSeconds <= 0) return Infinity;
@@ -100,13 +88,11 @@ export function matchLeftMs(g: GameState, player: 0 | 1, now = Date.now()): numb
 
 /**
  * End the game if the player on turn has run more than OVERTIME_SECONDS past
- * either their turn limit or their match clock. Call before acting on any move
- * and from the server's ticker.
+ * their match clock. Call before acting on any move and from the server's ticker.
  */
 export function checkTimeout(g: GameState, now = Date.now()): boolean {
   if (g.finished) return false;
-  const floor = -OVERTIME_SECONDS * 1000;
-  if (timeLeftMs(g, now) > floor && matchLeftMs(g, g.turn, now) > floor) return false;
+  if (matchLeftMs(g, g.turn, now) > -OVERTIME_SECONDS * 1000) return false;
   settleClock(g, now);
   g.endReason = 'timeout';
   g.finished = true;

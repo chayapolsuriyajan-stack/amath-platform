@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  DEFAULT_MATCH_SECONDS, DEFAULT_TURN_SECONDS, TURN_SECONDS_CHOICES, formatClockSeconds, isRoomCode, parseClock,
+  DEFAULT_MATCH_SECONDS, formatClockSeconds, isRoomCode, parseClock,
 } from '@amath/shared';
 import type { JoinAck } from '@amath/shared';
 import { MySettings, usePrefs } from '../components/MySettings';
 import { call, getName, setName, setToken } from '../net/socket';
-
-const timeLabel = (s: number) => (s === 0 ? 'No limit' : `${s / 60} min`);
 
 export function Home() {
   const nav = useNavigate();
@@ -16,7 +14,6 @@ export function Home() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [turnSeconds, setTurnSeconds] = useState(DEFAULT_TURN_SECONDS);
   const [matchOn, setMatchOn] = useState(true);
   const [matchText, setMatchText] = useState(formatClockSeconds(DEFAULT_MATCH_SECONDS));
   const matchSecs = parseClock(matchText);
@@ -31,7 +28,6 @@ export function Home() {
     const res = await call<JoinAck>(event, {
       name: name.trim(),
       code,
-      turnSeconds,
       matchSeconds: matchOn ? matchSecs ?? DEFAULT_MATCH_SECONDS : 0,
     });
     setBusy(false);
@@ -76,31 +72,12 @@ export function Home() {
           </div>
           <p className="settings-note">
             {!matchOn
-              ? 'No match clock: only the turn limit below applies.'
+              ? 'No clock at all: players can take as long as they like.'
               : matchBad
                 ? 'Use minutes:seconds, from 0:01 up to 180:00.'
                 : `Each player gets ${formatClockSeconds(matchSecs!)} for the whole game. It only runs on your own turns and keeps going past zero. Go 5 minutes over and you lose.`}
           </p>
 
-          <span className="settings-label">Time per turn</span>
-          <div className="seg">
-            {TURN_SECONDS_CHOICES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                className={turnSeconds === s ? 'on' : ''}
-                aria-pressed={turnSeconds === s}
-                onClick={() => setTurnSeconds(s)}
-              >
-                {timeLabel(s)}
-              </button>
-            ))}
-          </div>
-          <p className="settings-note">
-            {turnSeconds === 0
-              ? 'Players can take as long as they like on each turn.'
-              : 'Resets every turn and keeps running past zero. Go 5 minutes over and you lose the game.'}
-          </p>
         </fieldset>
 
         <fieldset className="settings">

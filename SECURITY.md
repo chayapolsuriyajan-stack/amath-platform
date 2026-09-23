@@ -19,7 +19,7 @@ the score, the board, the bag or the clock.
 | Working out a tile from its id | Tile ids are handed out *after* shuffling, so an id says nothing about the face. |
 | Playing tiles you don't have, or illegal equations | Every move is re-validated on the server: tile ownership, one row or column, no gaps, connected, the ★ on the first move, every equation formed (including the no-leading-plus rule), and the score is computed there. |
 | Acting out of turn, or after the game ends | Checked on every action. |
-| Stalling past the clock | The turn clock runs on the server's time. A player 5 minutes over loses, even if they never send anything again. |
+| Stalling past the clock | Each player's match clock is kept and charged on the server's own time. A player 5 minutes past zero loses, even if they never send anything again. |
 | Faking the opponent's "building" tiles | A draft is accepted only from the player on turn, only with tiles in their own rack, only on empty squares. It is relayed without tile ids and cleared once the turn ends. |
 | Taking over someone's seat | Rejoining needs a 128-bit random token that only that player's browser holds. |
 | Guessing room codes to crash other games | Joining is limited to 20 attempts per minute per address, read from the proxy header in a way the client cannot fake. |

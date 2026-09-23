@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   FACE_ORDER, PREMIUMS, TILE_SET, TOTAL_TILES, checkEquation, createBag, emptyBoard,
-  OVERTIME_SECONDS, checkTimeout, evaluateMove, exchange, newGame, pass, playMove, resign, timeLeftMs,
+  evaluateMove, exchange, newGame, pass, playMove, resign,
 } from '../src';
 import type { Cell, Placement, Tile } from '../src';
 
@@ -215,14 +215,14 @@ describe('game flow', () => {
   };
 
   it('deals 8 tiles each and leaves 54 in the bag', () => {
-    const g = newGame(seeded(), { first: 0 });
+    const g = newGame(seeded(), { first: 0, matchSeconds: 0 });
     expect(g.racks[0]).toHaveLength(8);
     expect(g.racks[1]).toHaveLength(8);
     expect(g.bag).toHaveLength(54);
   });
 
   it('only lets the player on turn act, and exchange needs 5+ tiles in the bag', () => {
-    const g = newGame(seeded(), { first: 0 });
+    const g = newGame(seeded(), { first: 0, matchSeconds: 0 });
     expect(exchange(g, 1, [g.racks[1][0].id]).ok).toBe(false);
     const give = g.racks[0][0].id;
     expect(exchange(g, 0, [give]).ok).toBe(true);
@@ -234,7 +234,7 @@ describe('game flow', () => {
   });
 
   it('pass is only allowed when the bag is empty and 6 passes end the game', () => {
-    const g = newGame(seeded(), { first: 0 });
+    const g = newGame(seeded(), { first: 0, matchSeconds: 0 });
     expect(pass(g, 0).ok).toBe(false);
     g.bag = [];
     g.scores = [10, 10];
@@ -245,7 +245,7 @@ describe('game flow', () => {
   });
 
   it('ending by an empty rack gives the winner 2× the opponent rack', () => {
-    const g = newGame(seeded(), { first: 0 });
+    const g = newGame(seeded(), { first: 0, matchSeconds: 0 });
     g.bag = [];
     g.racks[0] = syms('1+2=3').map((s) => tile(s, 1));
     g.racks[1] = [tile('9', 2), tile('8', 2)];
@@ -258,56 +258,9 @@ describe('game flow', () => {
   });
 
   it('resign hands the win to the opponent', () => {
-    const g = newGame(seeded(), { first: 0 });
+    const g = newGame(seeded(), { first: 0, matchSeconds: 0 });
     expect(resign(g, 0).ok).toBe(true);
     expect(g.winner).toBe(1);
-  });
-});
-
-describe('turn clock', () => {
-  const seeded = () => {
-    let s = 7;
-    return () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296);
-  };
-  const T0 = 1_000_000;
-  const start = () => newGame(seeded(), { first: 0, turnSeconds: 180, now: T0 });
-
-  it('reports time left and lets it run negative', () => {
-    const g = start();
-    expect(timeLeftMs(g, T0)).toBe(180_000);
-    expect(timeLeftMs(g, T0 + 200_000)).toBe(-20_000);
-  });
-
-  it('keeps playing while the player is into overtime', () => {
-    const g = start();
-    g.racks[0] = syms('1+2=3').map((s) => tile(s, 1));
-    const pl = g.racks[0].map((t, i) => ({ tileId: t.id, row: 7, col: 5 + i }));
-    // 4 minutes over the limit, still inside the 5 minute grace
-    const res = playMove(g, 0, pl, T0 + (180 + 240) * 1000);
-    expect(res.ok).toBe(true);
-    expect(g.finished).toBe(false);
-  });
-
-  it('loses the game once a player passes the overtime grace', () => {
-    const g = start();
-    const late = T0 + (180 + OVERTIME_SECONDS) * 1000 + 1;
-    expect(checkTimeout(g, late)).toBe(true);
-    expect(g.finished).toBe(true);
-    expect(g.endReason).toBe('timeout');
-    expect(g.winner).toBe(1);
-  });
-
-  it('resets the clock when the turn changes, and never times out with no limit', () => {
-    const g = start();
-    g.racks[0] = syms('1+2=3').map((s) => tile(s, 1));
-    const pl = g.racks[0].map((t, i) => ({ tileId: t.id, row: 7, col: 5 + i }));
-    playMove(g, 0, pl, T0 + 30_000);
-    expect(g.turn).toBe(1);
-    expect(g.turnStartedAt).toBe(T0 + 30_000);
-
-    const free = newGame(seeded(), { first: 0, turnSeconds: 0, matchSeconds: 0, now: T0 });
-    expect(timeLeftMs(free, T0 + 10 ** 9)).toBe(Infinity);
-    expect(checkTimeout(free, T0 + 10 ** 9)).toBe(false);
   });
 });
 
@@ -327,7 +280,7 @@ describe('scoring breakdown for the combo screen', () => {
   });
 
   it('records the breakdown on the game state for both players', () => {
-    const g = newGame(() => 0.5, { first: 0, turnSeconds: 0 });
+    const g = newGame(() => 0.5, { first: 0, matchSeconds: 0 });
     g.racks[0] = syms('1+2=3').map((s) => tile(s, 1));
     const pl = g.racks[0].map((t, i) => ({ tileId: t.id, row: 7, col: 5 + i }));
     expect(playMove(g, 0, pl).ok).toBe(true);

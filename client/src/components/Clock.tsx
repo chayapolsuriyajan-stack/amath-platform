@@ -20,28 +20,29 @@ export function formatClock(ms: number): string {
   return `${neg ? '-' : ''}${Math.floor(total / 60)}:${two(total % 60)}`;
 }
 
-/** one clock line: counts down, turns orange near zero, red and "lose in" past it */
-function Line({ label, ms, active }: { label: string; ms: number; active: boolean }) {
-  const over = ms < 0;
-  const urgent = !over && active && ms < 30_000;
+function ClockFace() {
   return (
-    <span className={`clock${active ? ' active' : ''}${over ? ' over' : ''}${urgent ? ' urgent' : ''}`}>
-      <em>{label}</em> {formatClock(ms)}
-      {over ? <b>lose in {formatClock(Math.max(0, OVERTIME_SECONDS * 1000 + ms))}</b> : null}
-    </span>
+    <svg className="clock-icon" viewBox="0 0 24 24" aria-hidden focusable="false">
+      <circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 6.5V12l4 2.4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
 /**
- * A player's clocks. `turn` is only passed while it is their turn; `match` is
- * their whole-game allowance and is shown all the time, frozen between turns.
+ * A player's match clock. `ms` is null when the room has no time limit.
+ * It counts down, warns under a minute, and goes red once it passes zero,
+ * where it also shows how long is left before that player loses.
  */
-export function Clocks({ turn, match, active }: { turn: number | null; match: number | null; active: boolean }) {
-  if (turn === null && match === null) return <span className="clock off">no time limit</span>;
+export function MatchClock({ ms, active }: { ms: number | null; active: boolean }) {
+  if (ms === null) return <div className="big-clock off"><ClockFace /><span className="t">--:--</span></div>;
+  const over = ms < 0;
+  const urgent = !over && ms < 60_000;
   return (
-    <span className="clocks">
-      {match !== null ? <Line label="Match" ms={match} active={active} /> : null}
-      {turn !== null ? <Line label="Turn" ms={turn} active={active} /> : null}
-    </span>
+    <div className={`big-clock${active ? ' active' : ''}${over ? ' over' : ''}${urgent ? ' urgent' : ''}`}>
+      <ClockFace />
+      <span className="t">{formatClock(ms)}</span>
+      {over ? <span className="lose-in">lose in {formatClock(Math.max(0, OVERTIME_SECONDS * 1000 + ms))}</span> : null}
+    </div>
   );
 }

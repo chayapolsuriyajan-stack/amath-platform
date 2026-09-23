@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  OVERTIME_SECONDS, checkTimeout, exchange, formatClockSeconds, matchLeftMs, newGame, parseClock, playMove, resign, timeLeftMs,
+  OVERTIME_SECONDS, checkTimeout, exchange, formatClockSeconds, matchLeftMs, newGame, parseClock, playMove, resign,
 } from '../src';
 import type { Tile } from '../src';
 
@@ -10,8 +10,8 @@ let nextId = 5000;
 const tiles = (faces: string[]): Tile[] => faces.map((face) => ({ id: nextId++, face, points: 1 }));
 
 /** a game where player 0 moves first; the default match clock is 20:00 each */
-const start = (opts: { turnSeconds?: number; matchSeconds?: number } = {}) =>
-  newGame(() => 0.5, { first: 0, turnSeconds: 0, now: T0, ...opts });
+const start = (opts: { matchSeconds?: number } = {}) =>
+  newGame(() => 0.5, { first: 0, now: T0, ...opts });
 
 /** give player 0 a rack that can play 1+2=3 across the star */
 function playOpening(g: ReturnType<typeof start>, now: number) {
@@ -79,14 +79,6 @@ describe('match clock', () => {
     expect(exchange(g, 0, [g.racks[0][0].id], T0 + 6 * MIN).ok).toBe(true); // A: 1 min
     expect(matchLeftMs(g, 0, T0 + 20 * MIN)).toBe(7 * MIN);
     expect(matchLeftMs(g, 1, T0 + 6 * MIN)).toBe(7 * MIN);
-  });
-
-  it('works alongside the turn clock: whichever runs out first counts', () => {
-    const g = start({ turnSeconds: 60, matchSeconds: 1200 });
-    const turnEdge = T0 + (60 + OVERTIME_SECONDS) * 1000;
-    expect(timeLeftMs(g, turnEdge + 1)).toBeLessThan(-OVERTIME_SECONDS * 1000);
-    expect(matchLeftMs(g, 0, turnEdge + 1)).toBeGreaterThan(0); // match clock still fine
-    expect(checkTimeout(g, turnEdge + 1)).toBe(true);
   });
 
   it('can be switched off', () => {

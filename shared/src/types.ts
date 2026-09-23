@@ -95,8 +95,6 @@ export interface GameState {
   /** null on a draw */
   winner?: 0 | 1 | null;
   firstMove: boolean;
-  /** seconds allowed per turn; 0 means no limit */
-  turnSeconds: number;
   /** epoch ms when the current turn started */
   turnStartedAt: number;
   /** seconds each player has for the whole match; 0 means no limit */
@@ -128,7 +126,6 @@ export interface PublicState {
   /** face -> how many tiles you have not seen yet (bag + opponent rack) */
   unseen: Record<string, number>;
   rematchVotes: [boolean, boolean];
-  turnSeconds: number;
   turnStartedAt: number;
   matchSeconds: number;
   bank: [number, number];

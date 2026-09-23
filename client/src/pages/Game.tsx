@@ -4,7 +4,7 @@ import { allowedSyms, isRoomCode } from '@amath/shared';
 import type { Ack, JoinAck, MoveBreakdown, Placement, RoomUpdate, Sticker, StickerEvent, Tile } from '@amath/shared';
 import { Board, type PendingTile } from '../components/Board';
 import { Chat } from '../components/Chat';
-import { Clocks, useServerNow } from '../components/Clock';
+import { MatchClock, useServerNow } from '../components/Clock';
 import { ComboScreen } from '../components/ComboScreen';
 import { ChoiceDialog, ExchangeDialog, GameOverDialog } from '../components/Dialogs';
 import { MySettings, usePrefs } from '../components/MySettings';
@@ -213,7 +213,6 @@ function Room({ code, token }: { code: string; token: string }) {
 
   const myTurn = !!state && !state.finished && state.turn === state.you;
   const now = useServerNow(skew, !!state && !state.finished);
-  const turnMs = state && state.turnSeconds > 0 && !state.finished ? state.turnSeconds * 1000 - (now - state.turnStartedAt) : null;
   const matchMs = (p: 0 | 1) =>
     state && state.matchSeconds > 0
       ? state.bank[p] - (!state.finished && state.turn === p ? now - state.turnStartedAt : 0)
@@ -412,7 +411,7 @@ function Room({ code, token }: { code: string; token: string }) {
           score={state.scores[opp]}
           active={oppTurn}
           sub={`${state.opponentRackCount} tiles`}
-          clock={<Clocks turn={oppTurn ? turnMs : null} match={matchMs(opp)} active={oppTurn} />}
+          clock={<MatchClock ms={matchMs(opp)} active={oppTurn} />}
         />
         <ScoreCard
           label={`${state.names[me]} (YOU)`}
@@ -420,7 +419,7 @@ function Room({ code, token }: { code: string; token: string }) {
           score={state.scores[me]}
           active={myTurn}
           sub={`Bag: ${state.bagCount}`}
-          clock={<Clocks turn={myTurn ? turnMs : null} match={matchMs(me)} active={myTurn} />}
+          clock={<MatchClock ms={matchMs(me)} active={myTurn} />}
         />
         <MySettings prefs={prefs} compact />
         <div className="buttons">

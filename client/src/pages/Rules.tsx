@@ -27,10 +27,15 @@ export function Rules() {
           choose which one it is when you place it. The same goes for <b>+/-</b>.
         </p>
 
-        <h2>Time per turn</h2>
+        <h2>The clock</h2>
         <p>
-          The rules suggest a 3 minute limit per turn, and the player who creates the room picks the limit. The clock keeps
-          running once it passes zero: if you go <b>5 minutes over</b> the limit on a single turn, you lose the game.
+          Each player has one clock for the whole match, <b>20:00</b> by default. The player who creates the room sets it to any
+          time in minutes:seconds, or switches it off. Your clock only runs while it is your turn and stops as soon as you play,
+          so how you spend the time across your turns is up to you.
+        </p>
+        <p>
+          It keeps counting once it passes zero and turns red. If you go <b>5 minutes past zero</b>, you lose the game, even if
+          you have walked away from the board.
         </p>
 
         <h2>Placing tiles</h2>
