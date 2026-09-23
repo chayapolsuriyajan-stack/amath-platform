@@ -150,3 +150,40 @@
   .toast, .cell.empty .tile.draft { animation: none; }
   .floater { animation-duration: 1.2s !important; }
 }
+
+/* ---------- the opening draw ---------- */
+.start-draw {
+  position: fixed; inset: 0; z-index: 88; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: rgba(10, 14, 22, 0.82);
+  animation: comboIn 0.25s ease-out;
+}
+.start-draw-inner { text-align: center; }
+.start-draw-title { margin: 0; font-size: 22px; font-weight: 800; color: #fff; }
+.start-draw-sub { margin: 4px 0 18px; font-size: 12px; color: var(--muted); }
+.start-draw-tiles { display: flex; gap: 34px; justify-content: center; }
+.draw-slot { display: flex; flex-direction: column; align-items: center; gap: 8px; transition: transform 0.3s, opacity 0.3s; }
+.draw-slot.win { transform: scale(1.12); }
+.draw-slot.lose { opacity: 0.45; }
+.draw-tile { position: relative; width: 74px; height: 74px; transform-style: preserve-3d; transition: transform 0.5s cubic-bezier(0.3, 1.4, 0.5, 1); }
+.draw-tile.flipped { transform: rotateY(180deg); }
+.draw-tile span {
+  position: absolute; inset: 0; border-radius: 8px; backface-visibility: hidden;
+  display: flex; align-items: center; justify-content: center; font-weight: 800;
+}
+.draw-tile .back { background: var(--dark-blue); color: #9ec5f8; font-size: 30px; border: 2px solid #1d5fbf; }
+.draw-tile .front { background: #e8dcc0; color: #1d1d1d; font-size: 28px; transform: rotateY(180deg); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
+.draw-slot.win .front { box-shadow: 0 0 0 3px var(--green), 0 0 26px rgba(25, 169, 116, 0.8); }
+.draw-name { font-size: 13px; color: #fff; font-weight: 600; }
+.start-draw-result { margin: 20px 0 0; font-size: 26px; font-weight: 900; color: #9ff5c0; opacity: 0; transform: scale(0.6); transition: opacity 0.3s, transform 0.4s cubic-bezier(0.2, 1.7, 0.4, 1); }
+.start-draw-result.show { opacity: 1; transform: scale(1); }
+.start-draw-result small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+
+/* ---------- play against the computer ---------- */
+.bot-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bot-row .seg { flex: 1; }
+.bot-row .play-bot { padding: 8px 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .draw-tile { transition: none; }
+}

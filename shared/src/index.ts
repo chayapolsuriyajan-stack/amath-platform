@@ -5,3 +5,4 @@ export * from './expression';
 export * from './move';
 export * from './game';
 export * from './protocol';
+export * from './bot';

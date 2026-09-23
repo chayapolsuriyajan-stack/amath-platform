@@ -3,7 +3,7 @@ import { evaluateMove } from './move';
 import { RACK_SIZE, createBag, secureRandom, shuffle, tileValue } from './tiles';
 import type { GameState, LogEntry, MoveResult, Placement, Tile } from './types';
 
-const MIN_BAG_FOR_EXCHANGE = 5;
+export const MIN_BAG_FOR_EXCHANGE = 5;
 /** 3 passes each, both players combined */
 const MAX_PASSES = 6;
 
@@ -36,7 +36,35 @@ export function formatClockSeconds(total: number): string {
   return `${neg ? '-' : ''}${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/**
+ * Who starts, per the Junior rules: both players draw one tile and the one nearest
+ * to 20 goes first. Symbol tiles all rank lowest and equal, a blank ranks highest.
+ */
+export function drawRank(face: string): number {
+  if (face === '?') return 100;
+  if (/^\d+$/.test(face)) return Number(face) + 1;
+  return 0;
+}
+
+export interface StartDraw {
+  /** the tile each player drew on the deciding draw */
+  faces: [string, string];
+  /** how many tied draws came before it */
+  redraws: number;
+}
+
+/** draw a tile each from a fresh bag, redrawing on a tie; the tiles go back afterwards */
+export function drawForStart(rand: () => number = secureRandom): { first: 0 | 1; draw: StartDraw } {
+  for (let redraws = 0; ; redraws++) {
+    const [a, b] = createBag(rand);
+    const ra = drawRank(a.face);
+    const rb = drawRank(b.face);
+    if (ra !== rb) return { first: ra > rb ? 0 : 1, draw: { faces: [a.face, b.face], redraws } };
+  }
+}
+
 export function newGame(rand: () => number = secureRandom, opts: GameOptions = {}): GameState {
+  const start = opts.first === undefined ? drawForStart(rand) : null;
   const bag = createBag(rand);
   const racks: [Tile[], Tile[]] = [bag.splice(0, RACK_SIZE), bag.splice(0, RACK_SIZE)];
   return {
@@ -44,7 +72,8 @@ export function newGame(rand: () => number = secureRandom, opts: GameOptions = {
     bag,
     racks,
     scores: [0, 0],
-    turn: opts.first ?? (rand() < 0.5 ? 0 : 1),
+    turn: opts.first ?? start!.first,
+    startDraw: start?.draw,
     passes: 0,
     log: [],
     finished: false,
@@ -158,7 +187,8 @@ export function pass(g: GameState, player: 0 | 1, now = Date.now()): MoveResult 
   if (checkTimeout(g, now)) return { ok: false, error: 'You ran out of time' };
   if (g.finished) return { ok: false, error: 'The game is over' };
   if (g.turn !== player) return { ok: false, error: 'It is not your turn' };
-  if (g.bag.length > 0) return { ok: false, error: 'You can only pass when the bag is empty' };
+  // with 5 or more tiles in the bag you can exchange instead; below that, passing is the way out
+  if (g.bag.length >= MIN_BAG_FOR_EXCHANGE) return { ok: false, error: 'You can exchange tiles instead of passing' };
   g.passes++;
   push(g, { player, type: 'pass', equations: [], score: 0 });
   if (g.passes >= MAX_PASSES) {

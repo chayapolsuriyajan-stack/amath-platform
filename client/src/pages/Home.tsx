@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  DEFAULT_MATCH_SECONDS, formatClockSeconds, isRoomCode, parseClock,
+  BOT_LEVELS, DEFAULT_MATCH_SECONDS, formatClockSeconds, isRoomCode, parseClock,
 } from '@amath/shared';
-import type { JoinAck } from '@amath/shared';
+import type { BotLevel, JoinAck } from '@amath/shared';
 import { MySettings, usePrefs } from '../components/MySettings';
 import { call, getName, setName, setToken } from '../net/socket';
+
+const BOT_BLURB: Record<BotLevel, string> = {
+  easy: 'Short, simple equations. Good for learning.',
+  medium: 'Solid moves, sometimes a clever one.',
+  hard: 'Looks for the highest score every turn, blanks and all.',
+};
 
 export function Home() {
   const nav = useNavigate();
@@ -18,8 +24,9 @@ export function Home() {
   const [matchText, setMatchText] = useState(formatClockSeconds(DEFAULT_MATCH_SECONDS));
   const matchSecs = parseClock(matchText);
   const matchBad = matchOn && matchSecs === null;
+  const [botLevel, setBotLevel] = useState<BotLevel>('medium');
 
-  const enter = async (event: 'room:create' | 'room:join') => {
+  const enter = async (event: 'room:create' | 'room:join', bot?: BotLevel) => {
     setError('');
     if (event === 'room:join' && !isRoomCode(code)) return setError('Enter the 6-digit room code');
     if (event === 'room:create' && matchBad) return setError('Write the match clock as minutes:seconds, like 20:00');
@@ -29,6 +36,7 @@ export function Home() {
       name: name.trim(),
       code,
       matchSeconds: matchOn ? matchSecs ?? DEFAULT_MATCH_SECONDS : 0,
+      bot,
     });
     setBusy(false);
     if (!res.ok) return setError(res.error);
@@ -88,6 +96,23 @@ export function Home() {
         <div className="home-actions">
           <button disabled={busy || matchBad} onClick={() => enter('room:create')}>New Game</button>
         </div>
+
+        <fieldset className="settings">
+          <legend>Play the computer</legend>
+          <div className="bot-row">
+            <div className="seg">
+              {BOT_LEVELS.map((l) => (
+                <button key={l} type="button" className={botLevel === l ? 'on' : ''} aria-pressed={botLevel === l} onClick={() => setBotLevel(l)}>
+                  {l[0].toUpperCase() + l.slice(1)}
+                </button>
+              ))}
+            </div>
+            <button className="play-bot" disabled={busy || matchBad} onClick={() => enter('room:create', botLevel)}>
+              Play vs Bot
+            </button>
+          </div>
+          <p className="settings-note">{BOT_BLURB[botLevel]} Uses the match clock above.</p>
+        </fieldset>
 
         <form
           className="join-form"

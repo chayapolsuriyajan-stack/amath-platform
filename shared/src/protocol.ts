@@ -21,7 +21,7 @@ export interface RoomSettings {
 }
 
 export interface ClientToServer {
-  'room:create': (a: { name: string; matchSeconds?: number }, cb: (r: JoinAck) => void) => void;
+  'room:create': (a: { name: string; matchSeconds?: number; bot?: 'easy' | 'medium' | 'hard' }, cb: (r: JoinAck) => void) => void;
   'room:join': (a: { code: string; name: string }, cb: (r: JoinAck) => void) => void;
   'room:rejoin': (a: { code: string; token: string }, cb: (r: Ack) => void) => void;
   'game:move': (a: { placements: Placement[] }, cb: (r: Ack) => void) => void;

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { Server } from 'socket.io';
 import type { ClientToServer, ServerToClient } from '@amath/shared';
+import { BotDriver } from './bot';
 import { Rooms, type Room } from './rooms';
 
 /**
@@ -51,7 +52,7 @@ function bucket(burst: number, rate: number) {
 /** room codes are only 6 digits, so guessing them has to be slow */
 const JOIN_ATTEMPTS_PER_MINUTE = 20;
 
-export function createApp() {
+export function createApp(opts: { botDelayScale?: number } = {}) {
   const app = express();
   const http = createServer(app);
   const io = new Server<ClientToServer, ServerToClient>(http, {
@@ -76,7 +77,21 @@ export function createApp() {
     const id = room.seats[seat]?.socketId;
     if (id) io.to(id).emit('room:update', rooms.update(room, seat));
   };
-  const broadcast = (room: Room) => room.seats.forEach((_, i) => sendTo(room, i as 0 | 1));
+  const sendAll = (room: Room) => room.seats.forEach((_, i) => sendTo(room, i as 0 | 1));
+  const bots = new BotDriver(
+    rooms,
+    {
+      broadcast: sendAll,
+      sendTo,
+      sticker: (room, ev) => room.seats.forEach((s) => s.socketId && io.to(s.socketId).emit('room:sticker', ev)),
+    },
+    { delayScale: opts.botDelayScale },
+  );
+  // every change goes to both players, and gives the computer its turn if it is due
+  const broadcast = (room: Room) => {
+    sendAll(room);
+    bots.poke(room);
+  };
 
   const joinAllowed = (ip: string) => {
     const now = Date.now();
@@ -105,7 +120,7 @@ export function createApp() {
 
     socket.on('room:create', (a, cb) => {
       if (!allow()) return reply(cb)({ ok: false, error: 'Too many requests, slow down' });
-      const res = rooms.create(a?.name, a?.matchSeconds, socket.id);
+      const res = rooms.create(a?.name, a?.matchSeconds, socket.id, a?.bot);
       if (res.ok) {
         current = { room: rooms.rooms.get(res.code)!, seat: 0 };
         broadcast(current.room);

@@ -1,8 +1,9 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import {
   CHAT_HISTORY, DEFAULT_MATCH_SECONDS, FACE_ORDER, MAX_CHAT_LENGTH, MAX_MATCH_SECONDS, RACK_SIZE, SIZE, TILE_SET,
-  allowedSyms, checkTimeout, exchange, inBounds, isRoomCode, isSticker, newGame, pass, playMove, resign,
+  allowedSyms, checkTimeout, exchange, inBounds, isBotLevel, isRoomCode, isSticker, newGame, pass, playMove, resign,
 } from '@amath/shared';
+import type { BotLevel } from '@amath/shared';
 import type {
   Ack, ChatMessage, DraftTile, GameState, JoinAck, Placement, PublicState, RoomSettings, RoomUpdate, StickerEvent,
 } from '@amath/shared';
@@ -11,6 +12,8 @@ interface Seat {
   name: string;
   token: string;
   socketId: string | null;
+  /** set when this seat is played by the computer */
+  bot?: BotLevel;
 }
 
 export interface Room {
@@ -29,6 +32,8 @@ export interface Room {
   nextStickerId: number;
   /** recent sticker times per seat, for rate limiting */
   stickerTimes: [number[], number[]];
+  /** the bot already said "gg" for the game that just ended */
+  botSaidGG?: boolean;
 }
 
 const IDLE_MS = 30 * 60 * 1000;
@@ -59,15 +64,20 @@ export class Rooms {
     }
   }
 
-  create(name: unknown, matchSeconds: unknown, socketId: string): JoinAck {
+  create(name: unknown, matchSeconds: unknown, socketId: string, bot?: unknown): JoinAck {
     if (this.rooms.size >= MAX_ROOMS) return { ok: false, error: 'The server is busy, try again in a minute' };
+    if (bot !== undefined && bot !== null && !isBotLevel(bot)) return { ok: false, error: 'Unknown bot level' };
     const code = this.newCode();
     const token = randomBytes(16).toString('hex');
+    const seats: Seat[] = [{ name: cleanName(name, 'Player 1'), token, socketId }];
+    // against the computer the game starts straight away; its seat has no token, so nobody can take it over
+    if (bot) seats.push({ name: `Bot · ${bot[0].toUpperCase()}${bot.slice(1)}`, token: '', socketId: null, bot });
+    const settings = { matchSeconds: cleanMatchSeconds(matchSeconds) };
     this.rooms.set(code, {
       code,
-      seats: [{ name: cleanName(name, 'Player 1'), token, socketId }],
-      game: null,
-      settings: { matchSeconds: cleanMatchSeconds(matchSeconds) },
+      seats,
+      game: bot ? newGame(undefined, { matchSeconds: settings.matchSeconds }) : null,
+      settings,
       chat: [],
       nextChatId: 1,
       lastChatAt: 0,
@@ -98,7 +108,7 @@ export class Rooms {
     if (typeof code !== 'string' || typeof token !== 'string') return { ok: false, error: 'Bad request' };
     const room = this.rooms.get(code);
     if (!room) return { ok: false, error: 'Room not found' };
-    const seat = room.seats.findIndex((s) => s.token === token);
+    const seat = room.seats.findIndex((s) => !s.bot && s.token !== '' && s.token === token);
     if (seat < 0) return { ok: false, error: 'Seat not found' };
     room.seats[seat].socketId = socketId;
     room.lastActive = Date.now();
@@ -218,8 +228,11 @@ export class Rooms {
   rematch(room: Room, seat: 0 | 1): boolean {
     if (!room.game?.finished) return false;
     room.rematch[seat] = true;
+    // the computer is always up for another game
+    room.seats.forEach((s, i) => { if (s.bot) room.rematch[i as 0 | 1] = true; });
     room.lastActive = Date.now();
     if (room.rematch[0] && room.rematch[1]) {
+      room.botSaidGG = false;
       room.game = newGame(undefined, { matchSeconds: room.settings.matchSeconds });
       room.drafts = [[], []];
       room.rematch = [false, false];
@@ -266,7 +279,7 @@ export class Rooms {
       turn: g.turn,
       you: seat,
       names: [room.seats[0].name, room.seats[1]?.name ?? 'Player 2'],
-      connected: [room.seats[0].socketId !== null, room.seats[1]?.socketId != null],
+      connected: [0, 1].map((i) => !!room.seats[i]?.bot || (room.seats[i]?.socketId ?? null) !== null) as [boolean, boolean],
       passes: g.passes,
       log: g.log,
       finished: g.finished,
@@ -275,6 +288,8 @@ export class Rooms {
       firstMove: g.firstMove,
       unseen,
       rematchVotes: room.rematch,
+      startDraw: g.startDraw,
+      opponentBot: room.seats[seat === 0 ? 1 : 0]?.bot,
       turnStartedAt: g.turnStartedAt,
       matchSeconds: g.matchSeconds,
       bank: g.bank,
@@ -287,3 +302,9 @@ export class Rooms {
     return { code: room.code, status: g.finished ? 'finished' : 'playing', state, settings: room.settings };
   }
 }
+
+/** the seat the computer plays in this room, if any */
+export const botSeat = (room: Room): 0 | 1 | null => {
+  const i = room.seats.findIndex((s) => s.bot);
+  return i < 0 ? null : (i as 0 | 1);
+};

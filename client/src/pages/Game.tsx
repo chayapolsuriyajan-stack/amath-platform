@@ -9,6 +9,7 @@ import { ComboScreen } from '../components/ComboScreen';
 import { ChoiceDialog, ExchangeDialog, GameOverDialog } from '../components/Dialogs';
 import { MySettings, usePrefs } from '../components/MySettings';
 import { MoveLog, ScoreCard, TileTracker } from '../components/Panels';
+import { StartDraw } from '../components/StartDraw';
 import { StickerLayer, type Floater } from '../components/Stickers';
 import { Toast, describeError, type ToastData } from '../components/Toast';
 import { useFlip } from '../components/useFlip';
@@ -141,6 +142,9 @@ function Room({ code, token }: { code: string; token: string }) {
   }, []);
   // stable, so each sticker's removal timer is not reset by every clock tick
   const removeFloater = useCallback((key: number) => setFloaters((f) => f.filter((x) => x.key !== key)), []);
+  // the opening draw is shown once per game, before the first move
+  const [drawShown, setDrawShown] = useState<string | null>(null);
+  const hideDraw = useCallback(() => setDrawShown((k) => (k ? `${k}:done` : k)), []);
 
   // the opponent's stickers drift up from their score card
   useEffect(() => {
@@ -360,7 +364,11 @@ function Room({ code, token }: { code: string; token: string }) {
   const opp = me === 0 ? 1 : 0;
   const oppGone = !state.connected[opp];
   const oppTurn = !state.finished && state.turn === opp;
-  const bagEmpty = state.bagCount === 0;
+  // exchanging needs 5 tiles in the bag; below that, passing is allowed instead
+  const canPass = myTurn && state.bagCount < 5;
+  const drawKey = state.startDraw && state.log.length === 0 ? `${state.startDraw.faces.join('-')}@${state.turnStartedAt}` : null;
+  const showDraw = !!drawKey && drawShown !== `${drawKey}:done`;
+  if (showDraw && drawShown !== drawKey) setDrawShown(drawKey);
   const canExchange = myTurn && state.bagCount >= 5;
   const turnText = state.finished ? 'Game over' : myTurn ? (state.firstMove ? 'Your turn — cover the ★ square' : 'Your turn') : `${state.names[opp]}’s turn`;
   const choiceTile = choice ? rack?.find((t) => t.id === choice.tileId) : undefined;
@@ -427,7 +435,7 @@ function Room({ code, token }: { code: string; token: string }) {
           <button className="submit" disabled={!myTurn || pending.length === 0} onClick={submit}>SUBMIT</button>
           <button className="ghost" disabled={pending.length === 0} onClick={recallAll}>Recall</button>
           <button className="ghost" onClick={shuffleRack}>Shuffle</button>
-          {bagEmpty && myTurn ? <button className="ghost" onClick={() => send('game:pass')}>Pass</button> : null}
+          {canPass ? <button className="ghost" onClick={() => send('game:pass')}>Pass</button> : null}
         </div>
         <MoveLog log={state.log} names={state.names} />
         <Chat
@@ -465,6 +473,16 @@ function Room({ code, token }: { code: string; token: string }) {
         />
       ) : null}
       <StickerLayer floaters={floaters} onDone={removeFloater} />
+      {showDraw && state.startDraw ? (
+        <StartDraw
+          faces={state.startDraw.faces}
+          redraws={state.startDraw.redraws}
+          names={state.names}
+          you={me}
+          first={state.turn}
+          onDone={hideDraw}
+        />
+      ) : null}
       {toast ? <Toast toast={toast} onClose={closeToast} /> : null}
       {state.finished && !overClosed ? (
         <GameOverDialog

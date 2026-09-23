@@ -59,10 +59,23 @@ export function Rules() {
         </ul>
         <p>Piece multipliers only apply to tiles placed this turn. Successfully submitting all 8 items will gain +40 extra points.</p>
 
+        <h2>Who starts</h2>
+        <p>
+          Each player draws one tile, and whoever draws nearest to 20 goes first. Symbol tiles all count the same and lowest, a
+          blank counts highest, and a tie means both draw again. The tiles go back in the bag before the game begins.
+        </p>
+
         <h2>Exchange and pass</h2>
         <p>
-          You can exchange tiles while there are at least 5 tiles in the bag; it uses your turn. The pass button only appears when there
-          are no items left in the bag.
+          You can exchange tiles while there are at least 5 tiles in the bag; it uses your turn. Once fewer than 5 are left and
+          exchanging is no longer possible, you can pass instead.
+        </p>
+
+        <h2>Playing the computer</h2>
+        <p>
+          <b>Easy</b> plays short, simple equations of up to 5 tiles and never uses a blank. <b>Medium</b> plays solid moves of up
+          to 6 tiles. <b>Hard</b> searches for the highest-scoring move each turn, using all 8 tiles and blanks when they are worth
+          it. The computer follows exactly the same rules and clock as you, and never sees your tiles.
         </p>
 
         <h2>End game</h2>
