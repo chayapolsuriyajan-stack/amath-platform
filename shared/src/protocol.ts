@@ -15,9 +15,10 @@ export const CHAT_HISTORY = 50;
 /**
  * Why an action failed, when the client needs to react differently:
  * `no-room` the room is gone, `no-seat` the seat token does not match,
- * `rate-limit` too many tries, `not-in-room` the connection has no seat yet.
+ * `rate-limit` too many tries, `not-in-room` the connection has no seat yet,
+ * `unavailable` the game database could not be reached, so try again.
  */
-export type FailCode = 'no-room' | 'no-seat' | 'rate-limit' | 'not-in-room';
+export type FailCode = 'no-room' | 'no-seat' | 'rate-limit' | 'not-in-room' | 'unavailable';
 export type Ack = { ok: true } | { ok: false; error: string; code?: FailCode };
 export type JoinAck = { ok: true; code: string; token: string } | { ok: false; error: string; code?: FailCode };
 

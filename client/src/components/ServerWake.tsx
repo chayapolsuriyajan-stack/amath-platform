@@ -73,7 +73,9 @@ export function ConnectionBanner({ attempt, status }: { attempt: number; status:
       {status.waking ? <ServerWake status={status} mode="reconnect" /> : null}
       <p className="conn-note">
         {status.waking
-          ? 'If the server restarted, open games cannot be recovered. We will tell you as soon as we know.'
+          ? status.persistent
+            ? 'Your game is saved. It will be waiting for you when the server is back, and the time it was down will not count against you.'
+            : 'If the server restarted, open games cannot be recovered. We will tell you as soon as we know.'
           : 'Your game is kept on the server. If it is your turn, your clock keeps running while you reconnect.'}
       </p>
     </div>

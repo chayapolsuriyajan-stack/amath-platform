@@ -6,7 +6,8 @@ import express from 'express';
 import { Server } from 'socket.io';
 import type { ClientToServer, ServerToClient } from '@amath/shared';
 import { BotDriver } from './bot';
-import { Rooms, type Room } from './rooms';
+import { Rooms, StoreUnavailable, type Room } from './rooms';
+import { MonitoredStore, storeFromEnv, type RoomStore } from './store';
 
 /**
  * Browsers always send an Origin, so this stops other websites from driving the
@@ -52,7 +53,7 @@ function bucket(burst: number, rate: number) {
 /** room codes are only 6 digits, so guessing them has to be slow */
 const JOIN_ATTEMPTS_PER_MINUTE = 20;
 
-export function createApp(opts: { botDelayScale?: number } = {}) {
+export function createApp(opts: { botDelayScale?: number; store?: RoomStore | null } = {}) {
   const app = express();
   const http = createServer(app);
   const io = new Server<ClientToServer, ServerToClient>(http, {
@@ -61,7 +62,10 @@ export function createApp(opts: { botDelayScale?: number } = {}) {
     // the largest real message is a move of 8 placements, well under 2 KB
     maxHttpBufferSize: 16_000,
   });
-  const rooms = new Rooms();
+  // undefined means "look at the environment"; null means "memory only", which tests ask for
+  const chosen = opts.store === undefined ? storeFromEnv() : opts.store;
+  const store = chosen ? new MonitoredStore(chosen) : null;
+  const rooms = new Rooms({ store });
   const joinAttempts = new Map<string, number[]>();
 
   app.disable('x-powered-by');
@@ -74,7 +78,15 @@ export function createApp(opts: { botDelayScale?: number } = {}) {
       res.setHeader('Vary', 'Origin');
     }
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ ok: true, rooms: rooms.rooms.size });
+    // `persistent` tells the page whether a restart would lose open games; the reason for a
+    // database failure stays in the server log, not on a public page
+    const status = store?.status();
+    res.json({
+      ok: true,
+      rooms: rooms.rooms.size,
+      persistent: !!store,
+      store: status ? { kind: status.kind, ok: status.ok } : null,
+    });
   });
 
   const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../client/dist');
@@ -133,39 +145,73 @@ export function createApp(opts: { botDelayScale?: number } = {}) {
       if (res.ok) broadcast(current.room);
     };
 
-    socket.on('room:create', (a, cb) => {
+    // the database could not be asked, so we cannot say the room does not exist: the client tries again
+    const unavailable = {
+      ok: false,
+      error: 'The game database is not answering. Trying again in a moment.',
+      code: 'unavailable',
+    } as const;
+
+    /** these handlers wait on the database; if the player left meanwhile, do not leave a dead connection in a seat */
+    const dropIfGone = () => {
+      if (socket.disconnected) {
+        const room = rooms.disconnect(socket.id);
+        if (room) broadcast(room);
+        return true;
+      }
+      return false;
+    };
+
+    socket.on('room:create', async (a, cb) => {
       if (!allow()) return reply(cb)({ ok: false, error: 'Too many requests, slow down' });
-      const res = rooms.create(a?.name, a?.matchSeconds, socket.id, a?.bot);
+      const res = await rooms.create(a?.name, a?.matchSeconds, socket.id, a?.bot);
       if (res.ok) {
         current = { room: rooms.rooms.get(res.code)!, seat: 0 };
-        broadcast(current.room);
+        if (!dropIfGone()) broadcast(current.room);
       }
       reply(cb)(res);
     });
 
-    socket.on('room:join', (a, cb) => {
+    socket.on('room:join', async (a, cb) => {
       if (!allow() || !joinAllowed(ip)) return reply(cb)({ ok: false, error: 'Too many attempts, wait a minute', code: 'rate-limit' });
+      // after a restart the room may only exist in the database
+      try {
+        await rooms.ensureLoaded(typeof a?.code === 'string' ? a.code : '');
+      } catch (err) {
+        if (err instanceof StoreUnavailable) return reply(cb)(unavailable);
+        throw err;
+      }
       const res = rooms.join(a?.code, a?.name, socket.id);
       if (res.ok) {
         current = { room: rooms.rooms.get(res.code)!, seat: 1 };
-        broadcast(current.room);
+        if (!dropIfGone()) broadcast(current.room);
       }
       reply(cb)(res);
     });
 
-    socket.on('room:rejoin', (a, cb) => {
+    socket.on('room:rejoin', async (a, cb) => {
       // Getting back into your own seat needs a 128-bit secret, so success is never counted:
       // everyone on one network can reload or reconnect as often as they like. Only failed
       // guesses spend the address's budget.
       const limited = { ok: false, error: 'Too many attempts, wait a minute', code: 'rate-limit' } as const;
       if (!allow() || recentAttempts(ip).length >= JOIN_ATTEMPTS_PER_MINUTE) return reply(cb)(limited);
+      let room: Room | null;
+      try {
+        room = await rooms.ensureLoaded(typeof a?.code === 'string' ? a.code : '');
+      } catch (err) {
+        if (err instanceof StoreUnavailable) return reply(cb)(unavailable);
+        throw err;
+      }
+      // with a database, asking about a room that is not there costs a lookup, so it counts as a
+      // guess; without one it costs nothing
+      if (!room && rooms.store) recentAttempts(ip).push(Date.now());
       const res = rooms.rejoin(a?.code, a?.token, socket.id);
       if (res.ok) {
         current = { room: res.room, seat: res.seat };
-        broadcast(res.room);
+        if (!dropIfGone()) broadcast(res.room);
         return reply(cb)({ ok: true });
       }
-      // a room that has simply expired is not a guess; a wrong token for a live room is
+      // a wrong token for a live room is a guess; a room that has simply expired is not
       if (res.code === 'no-seat') recentAttempts(ip).push(Date.now());
       reply(cb)(res);
     });
@@ -212,11 +258,36 @@ export function createApp(opts: { botDelayScale?: number } = {}) {
     for (const room of rooms.timedOut()) broadcast(room);
   }, 1000);
   clock.unref();
-  return { app, http, io, rooms };
+  return { app, http, io, rooms, store };
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const port = Number(process.env.PORT) || 3001;
-  createApp().http.listen(port, () => console.log(`A-Math server listening on http://localhost:${port}`));
+  const server = createApp();
+  server.http.listen(port, () => {
+    console.log(`A-Math server listening on http://localhost:${port}`);
+    console.log(
+      server.store
+        ? `Games are saved to ${server.store.kind}, so they survive a restart.`
+        : 'Games are kept in memory only and are lost on a restart. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN to save them.',
+    );
+    // ask the database something harmless now, so a wrong URL or token shows up in the log at once
+    // instead of on the first game
+    server.store
+      ?.has('000000')
+      .then(() => console.log('Database check: reachable.'))
+      .catch((err: Error) => console.error(`Database check FAILED: ${err.message}. Games will not be saved until this is fixed.`));
+  });
+  // Render stops the old server with SIGTERM when it deploys a new one: write every game first
+  let stopping = false;
+  const stop = async (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`${signal} received, saving games before stopping…`);
+    await server.rooms.flush();
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => void stop('SIGTERM'));
+  process.on('SIGINT', () => void stop('SIGINT'));
 }

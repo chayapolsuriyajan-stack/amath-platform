@@ -5,6 +5,7 @@ import {
 import {
   SEAT_TTL_MS, ago, forgetSeat, lastGame, saveSeat, savedSeats, type Store,
 } from '../src/net/session';
+import { parseHealth } from '../src/net/serverStatus';
 
 /** a stand-in for localStorage */
 class FakeStore implements Store {
@@ -63,6 +64,20 @@ describe('wake-up progress', () => {
     expect(secs(warmupText(59_000).detail)).toBeGreaterThanOrEqual(5);
     expect(warmupText(WARMUP_EXPECTED_MS + 1000).headline).toBe('Almost there');
     expect(warmupText(WARMUP_SLOW_MS + 1000).headline).toBe('Still waiting for the server');
+  });
+});
+
+describe('reading /health', () => {
+  it('knows whether the server saves games', () => {
+    expect(parseHealth({ ok: true, rooms: 0, persistent: true })).toEqual({ persistent: true });
+    expect(parseHealth({ ok: true, rooms: 0, persistent: false })).toEqual({ persistent: false });
+    expect(parseHealth({ ok: true })).toEqual({ persistent: false }); // an older server that does not say
+  });
+  it('does not take anything else for the game server', () => {
+    expect(parseHealth(null)).toBeNull();
+    expect(parseHealth('<html>waking up</html>')).toBeNull();
+    expect(parseHealth({ ok: false })).toBeNull();
+    expect(parseHealth({})).toBeNull();
   });
 });
 

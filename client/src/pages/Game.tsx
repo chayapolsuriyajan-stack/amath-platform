@@ -94,8 +94,8 @@ function WelcomeBack({
 
 /** a game that cannot be reopened: say why, and what to do about it */
 function GameGone({
-  kind, last, onNewSeat,
-}: { kind: 'room' | 'seat'; last: PublicState | null; onNewSeat: () => void }) {
+  kind, last, persistent, onNewSeat,
+}: { kind: 'room' | 'seat'; last: PublicState | null; persistent: boolean | null; onNewSeat: () => void }) {
   if (kind === 'seat') {
     return (
       <div className="page center">
@@ -112,10 +112,17 @@ function GameGone({
     <div className="page center">
       <div className="panel">
         <h2>This game is no longer on the server</h2>
-        <p>
-          Games are kept in the server’s memory, and the free server restarts after it has been idle or when it is updated.
-          When that happens every open game is lost, and this one couldn’t be recovered.
-        </p>
+        {persistent ? (
+          <p>
+            Games are saved for 24 hours after the last move, and for 10 minutes once they finish. This one has passed that, or
+            was ended.
+          </p>
+        ) : (
+          <p>
+            Games are kept in the server’s memory, and the free server restarts after it has been idle or when it is updated.
+            When that happens every open game is lost, and this one couldn’t be recovered.
+          </p>
+        )}
         {last ? (
           <p className="muted">
             The last score we saw: {last.names[last.you]} {last.scores[last.you]} – {last.scores[last.you === 0 ? 1 : 0]}{' '}
@@ -240,6 +247,10 @@ function Room({ code, token, onSeatLost }: { code: string; token: string; onSeat
           // temporary: keep trying, this is not the end of the game
           setRetryNote('Too many attempts from this network. Trying again in a few seconds…');
           retry = window.setTimeout(rejoin, 6000);
+        } else if (r.code === 'unavailable') {
+          // the server could not look the game up just now: not the same as the game being gone
+          setRetryNote('The game database is not answering. Trying again in a few seconds…');
+          retry = window.setTimeout(rejoin, 4000);
         } else if (r.code === 'no-room') setGone('room');
         else if (r.code === 'no-seat') setGone('seat');
         else setFatal(r.error);
@@ -491,7 +502,7 @@ function Room({ code, token, onSeatLost }: { code: string; token: string; onSeat
     }
   };
 
-  if (gone) return <GameGone kind={gone} last={lastSeen.current} onNewSeat={onSeatLost} />;
+  if (gone) return <GameGone kind={gone} last={lastSeen.current} persistent={server.persistent} onNewSeat={onSeatLost} />;
   if (fatal) return <Notice title="Cannot open this room" text={`${fatal}. Reload the page to try again.`} />;
   // no word from the room yet: right after a reload, or while the server is waking
   if (!update) return <ReconnectingScreen code={code} />;

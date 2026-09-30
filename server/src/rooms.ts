@@ -7,10 +7,13 @@ import type { BotLevel } from '@amath/shared';
 import type {
   Ack, ChatMessage, DraftTile, FailCode, GameState, JoinAck, Placement, PublicState, RoomSettings, RoomUpdate, StickerEvent,
 } from '@amath/shared';
+import { TTL, hashToken, parseStoredRoom, resumeClock, tokenMatches, type StoredRoom } from './persist';
+import type { RoomStore } from './store';
 
 interface Seat {
   name: string;
-  token: string;
+  /** hash of the seat token; the token itself is only ever handed to the player */
+  tokenHash: string;
   socketId: string | null;
   /** set when this seat is played by the computer */
   bot?: BotLevel;
@@ -45,6 +48,22 @@ export const MAX_ROOMS = 5000;
 const STICKER_BURST = 8;
 const STICKER_WINDOW_MS = 2000;
 
+/** the database could not be asked, so we do not know whether the room exists */
+export class StoreUnavailable extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StoreUnavailable';
+  }
+}
+
+export interface RoomsOptions {
+  /** where rooms are kept so they outlive the process; null keeps them in memory only */
+  store?: RoomStore | null;
+  /** wait this long for more changes before writing, so a burst becomes one write */
+  saveDelayMs?: number;
+  log?: (message: string) => void;
+}
+
 const cleanName = (n: unknown, fallback: string) => {
   const s = typeof n === 'string' ? n.replace(/\s+/g, ' ').trim().slice(0, 16) : '';
   return s || fallback;
@@ -56,6 +75,20 @@ const cleanMatchSeconds = (v: unknown) =>
 
 export class Rooms {
   readonly rooms = new Map<string, Room>();
+  readonly store: RoomStore | null;
+  private saveDelayMs: number;
+  private log: (message: string) => void;
+  private loading = new Map<string, Promise<Room | null>>();
+  private pendingSave = new Map<string, { timer: ReturnType<typeof setTimeout>; room: Room }>();
+  private writing = new Map<string, Promise<void>>();
+  /** rooms that were deleted on purpose and must not be written back */
+  private forgotten = new WeakSet<Room>();
+
+  constructor(opts: RoomsOptions = {}) {
+    this.store = opts.store ?? null;
+    this.saveDelayMs = opts.saveDelayMs ?? 250;
+    this.log = opts.log ?? console.error;
+  }
 
   private newCode(): string {
     for (;;) {
@@ -64,16 +97,31 @@ export class Rooms {
     }
   }
 
-  create(name: unknown, matchSeconds: unknown, socketId: string, bot?: unknown): JoinAck {
+  /** a code no live room and no stored room is using */
+  private async freeCode(): Promise<string> {
+    for (let i = 0; i < 10; i++) {
+      const code = this.newCode();
+      if (!this.store) return code;
+      try {
+        if (!(await this.store.has(code)) && !this.rooms.has(code)) return code;
+      } catch {
+        // could not ask; a clash needs a 1 in 900,000 code to hit a stored game, so carry on
+        if (!this.rooms.has(code)) return code;
+      }
+    }
+    return this.newCode();
+  }
+
+  async create(name: unknown, matchSeconds: unknown, socketId: string, bot?: unknown): Promise<JoinAck> {
     if (this.rooms.size >= MAX_ROOMS) return { ok: false, error: 'The server is busy, try again in a minute' };
     if (bot !== undefined && bot !== null && !isBotLevel(bot)) return { ok: false, error: 'Unknown bot level' };
-    const code = this.newCode();
+    const code = await this.freeCode();
     const token = randomBytes(16).toString('hex');
-    const seats: Seat[] = [{ name: cleanName(name, 'Player 1'), token, socketId }];
+    const seats: Seat[] = [{ name: cleanName(name, 'Player 1'), tokenHash: hashToken(token), socketId }];
     // against the computer the game starts straight away; its seat has no token, so nobody can take it over
-    if (bot) seats.push({ name: `Bot · ${bot[0].toUpperCase()}${bot.slice(1)}`, token: '', socketId: null, bot });
+    if (bot) seats.push({ name: `Bot · ${bot[0].toUpperCase()}${bot.slice(1)}`, tokenHash: '', socketId: null, bot });
     const settings = { matchSeconds: cleanMatchSeconds(matchSeconds) };
-    this.rooms.set(code, {
+    const room: Room = {
       code,
       seats,
       game: bot ? newGame(undefined, { matchSeconds: settings.matchSeconds }) : null,
@@ -87,8 +135,139 @@ export class Rooms {
       drafts: [[], []],
       nextStickerId: 1,
       stickerTimes: [[], []],
-    });
+    };
+    this.rooms.set(code, room);
+    this.markDirty(room);
     return { ok: true, code, token };
+  }
+
+  /**
+   * The room for this code, from memory or, after a restart, from the store.
+   * Null means it does not exist; StoreUnavailable means we could not find out.
+   */
+  async ensureLoaded(code: string): Promise<Room | null> {
+    const live = this.rooms.get(code);
+    if (live) return live;
+    if (!this.store || !/^\d{6}$/.test(code)) return null;
+    const pending = this.loading.get(code);
+    if (pending) return pending;
+    const load = this.loadFromStore(code).finally(() => this.loading.delete(code));
+    this.loading.set(code, load);
+    return load;
+  }
+
+  private async loadFromStore(code: string): Promise<Room | null> {
+    let json: string | null;
+    try {
+      json = await this.store!.load(code);
+    } catch (err) {
+      throw new StoreUnavailable(err instanceof Error ? err.message : 'the database could not be read');
+    }
+    if (json === null) return null;
+    const parsed = parseStoredRoom(json);
+    if ('error' in parsed || parsed.room.code !== code) {
+      this.log(`ignoring the stored room ${code}: ${'error' in parsed ? parsed.error : 'wrong code inside'}`);
+      return null;
+    }
+    const existing = this.rooms.get(code); // made while we were waiting
+    if (existing) return existing;
+    const room = this.hydrate(parsed.room, Date.now());
+    this.rooms.set(code, room);
+    return room;
+  }
+
+  /** turn a stored record back into a live room: nobody is connected until they rejoin */
+  private hydrate(s: StoredRoom, now: number): Room {
+    const game = s.game;
+    if (game) resumeClock(game, s.savedAt, now);
+    return {
+      code: s.code,
+      seats: s.seats.map((x) => ({ name: x.name, tokenHash: x.tokenHash, socketId: null, ...(x.bot ? { bot: x.bot } : {}) })),
+      game,
+      settings: s.settings,
+      chat: s.chat,
+      nextChatId: s.nextChatId,
+      lastChatAt: 0,
+      rematch: s.rematch,
+      lastActive: now,
+      finishedAt: game?.finished ? now : null,
+      drafts: [[], []],
+      nextStickerId: 1,
+      stickerTimes: [[], []],
+      botSaidGG: s.botSaidGG,
+    };
+  }
+
+  private toStored(room: Room, now: number): StoredRoom {
+    return {
+      v: 1,
+      savedAt: now,
+      code: room.code,
+      seats: room.seats.map((x) => ({ name: x.name, tokenHash: x.tokenHash, ...(x.bot ? { bot: x.bot } : {}) })),
+      game: room.game,
+      settings: room.settings,
+      chat: room.chat,
+      nextChatId: room.nextChatId,
+      rematch: room.rematch,
+      lastActive: room.lastActive,
+      botSaidGG: room.botSaidGG,
+    };
+  }
+
+  /** note that a room changed; it is written shortly, once, however many changes come in between */
+  markDirty(room: Room) {
+    if (!this.store || this.pendingSave.has(room.code)) return;
+    const timer = setTimeout(() => {
+      this.pendingSave.delete(room.code);
+      void this.write(room);
+    }, this.saveDelayMs);
+    timer.unref?.();
+    this.pendingSave.set(room.code, { timer, room });
+  }
+
+  private write(room: Room): Promise<void> {
+    const store = this.store;
+    if (!store) return Promise.resolve();
+    const code = room.code;
+    const previous = this.writing.get(code) ?? Promise.resolve();
+    const next = previous
+      .then(async () => {
+        if (this.forgotten.has(room)) return;
+        const ttl = !room.game ? TTL.waiting : room.game.finished ? TTL.finished : TTL.playing;
+        await store.save(code, JSON.stringify(this.toStored(room, Date.now())), ttl);
+      })
+      // a database problem must never stop the game: it carries on in memory
+      .catch(() => undefined);
+    this.writing.set(code, next);
+    void next.finally(() => {
+      if (this.writing.get(code) === next) this.writing.delete(code);
+    });
+    return next;
+  }
+
+  /** write everything that is waiting to be written, for a clean shutdown */
+  async flush(timeoutMs = 8000): Promise<void> {
+    for (const { timer, room } of this.pendingSave.values()) {
+      clearTimeout(timer);
+      void this.write(room);
+    }
+    this.pendingSave.clear();
+    let stop: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      stop = setTimeout(resolve, timeoutMs);
+    });
+    await Promise.race([Promise.allSettled([...this.writing.values()]), timeout]);
+    clearTimeout(stop);
+  }
+
+  /** a room that is over for good: remove it from memory and from the store */
+  private forget(room: Room) {
+    this.forgotten.add(room);
+    const pending = this.pendingSave.get(room.code);
+    if (pending) clearTimeout(pending.timer);
+    this.pendingSave.delete(room.code);
+    this.rooms.delete(room.code);
+    void this.store?.remove(room.code).catch(() => undefined);
   }
 
   join(code: unknown, name: unknown, socketId: string): JoinAck {
@@ -97,9 +276,10 @@ export class Rooms {
     if (!room) return { ok: false, error: 'Room not found' };
     if (room.seats.length >= 2) return { ok: false, error: 'This room is full' };
     const token = randomBytes(16).toString('hex');
-    room.seats.push({ name: cleanName(name, 'Player 2'), token, socketId });
+    room.seats.push({ name: cleanName(name, 'Player 2'), tokenHash: hashToken(token), socketId });
     room.game = newGame(undefined, { matchSeconds: room.settings.matchSeconds });
     room.lastActive = Date.now();
+    this.markDirty(room);
     return { ok: true, code, token };
   }
 
@@ -108,7 +288,7 @@ export class Rooms {
     if (typeof code !== 'string' || typeof token !== 'string') return { ok: false, error: 'Bad request' };
     const room = this.rooms.get(code);
     if (!room) return { ok: false, error: 'Room not found', code: 'no-room' };
-    const seat = room.seats.findIndex((s) => !s.bot && s.token !== '' && s.token === token);
+    const seat = room.seats.findIndex((s) => !s.bot && tokenMatches(token, s.tokenHash));
     if (seat < 0) return { ok: false, error: 'Seat not found', code: 'no-seat' };
     room.seats[seat].socketId = socketId;
     room.lastActive = Date.now();
@@ -130,8 +310,11 @@ export class Rooms {
     // a finished action ends the turn, so nobody should still see a half-built move
     if (res?.ok) room.drafts = [[], []];
     room.lastActive = Date.now();
-    if (room.game?.finished && room.finishedAt === null) room.finishedAt = Date.now();
+    // a move refused for running out of time still ended the game, so it is worth saving
+    const justFinished = !!room.game?.finished && room.finishedAt === null;
+    if (justFinished) room.finishedAt = Date.now();
     if (room.game && !room.game.finished) room.finishedAt = null;
+    if (res?.ok || justFinished) this.markDirty(room);
   }
 
   move(room: Room, seat: 0 | 1, placements: Placement[]): Ack {
@@ -175,6 +358,7 @@ export class Rooms {
     room.chat.push({ id: room.nextChatId++, player: seat, text: clean, at: now });
     if (room.chat.length > CHAT_HISTORY) room.chat.splice(0, room.chat.length - CHAT_HISTORY);
     room.lastActive = now;
+    this.markDirty(room);
     return { ok: true };
   }
 
@@ -237,6 +421,7 @@ export class Rooms {
       room.drafts = [[], []];
       room.rematch = [false, false];
       room.finishedAt = null;
+      this.markDirty(room);
       return true;
     }
     return false;
@@ -249,6 +434,7 @@ export class Rooms {
       if (room.game && !room.game.finished && checkTimeout(room.game, now)) {
         room.finishedAt = now;
         room.drafts = [[], []];
+        this.markDirty(room);
         hit.push(room);
       }
     }
@@ -256,10 +442,22 @@ export class Rooms {
   }
 
   sweep(now = Date.now()) {
-    for (const [code, room] of this.rooms) {
-      const idle = now - room.lastActive > IDLE_MS;
+    for (const room of [...this.rooms.values()]) {
+      // a room with someone still connected is never taken out from under them
+      const connected = room.seats.some((x) => x.socketId !== null);
+      const idle = !connected && now - room.lastActive > IDLE_MS;
       const done = room.finishedAt !== null && now - room.finishedAt > FINISHED_MS;
-      if (idle || done) this.rooms.delete(code);
+      if (done) this.forget(room);
+      else if (idle) {
+        // out of memory, but kept in the store: it comes back when someone returns
+        const pending = this.pendingSave.get(room.code);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.pendingSave.delete(room.code);
+          void this.write(room);
+        }
+        this.rooms.delete(room.code);
+      }
     }
   }
 

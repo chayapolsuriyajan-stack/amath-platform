@@ -5,7 +5,7 @@ and a local match history.
 
 **Live:** https://amath-platform.vercel.app (client on Vercel, game server on Render's free plan at
 https://amath-server.onrender.com). The free server sleeps after 15 minutes idle and takes about a minute to wake;
-open rooms are lost when it sleeps or restarts.
+with saving switched on (below) open games survive that, and without it they are lost.
 
 ## Rules
 
@@ -13,7 +13,7 @@ Basic rules follow a-math.com: unary minus only in front of a non-zero number, a
 piece and equation multipliers, +40 for using all 8 tiles, game ends when the bag and one rack are empty or after passes.
 
 **Two-digit tile variation.** The only two-digit tiles are **10–16** and a separate **20** (no 17, 18 or 19). Each one is a
-whole number and can never be joined to another digit. That gives a 97-tile bag (see [shared/src/tiles.ts](shared/src/tiles.ts)).
+whole number and can never be joined to another digit. The bag is the 70-tile Junior Edition set (see [shared/src/tiles.ts](shared/src/tiles.ts)).
 
 Other choices worth knowing:
 - The ★ start square has no multiplier.
@@ -68,8 +68,34 @@ render workspace set
 
 The Render service id is in the `deploy:server` script; the service itself was created from
 [render.yaml](render.yaml) (Node, `npm start`, health check `/health`, free plan).
-The free plan sleeps after 15 minutes idle, takes about a minute to wake, and loses open rooms
-whenever it sleeps or redeploys.
+The free plan sleeps after 15 minutes idle and takes about a minute to wake. Without a database (next section) it also
+loses every open game each time it sleeps or redeploys.
+
+## Saving games so they survive a restart
+
+The server keeps every game in memory while it runs. To keep them across a sleep, a crash or a deploy it can also save
+each game to a database, and load it back when a player returns. Nothing changes for players: they reconnect and
+carry on, and the time the server was down is not charged to anyone's clock.
+
+**Set up Upstash Redis (free, no card):**
+1. Sign up at [upstash.com](https://upstash.com) and create a Redis database. Pick a region near the game server (the
+   Render service is in Oregon, so *US-West*).
+2. On the database page, under **REST API**, copy `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+3. In the Render dashboard, open the `amath-server` service, then **Environment**, and add both as environment variables.
+   Render redeploys by itself.
+4. Check `https://amath-server.onrender.com/health`: it should say `"persistent":true` and `"store":{"kind":"upstash","ok":true}`.
+   The service log also prints `Database check: reachable.` at startup, or says why it is not.
+
+How it behaves:
+- A game is saved a moment after each move, exchange, pass, resignation, chat message or rematch, and once more when the
+  server is told to stop. It is kept 24 hours after the last change, or 10 minutes after it finishes.
+- If the database is down, games carry on in memory and `/health` reports `"ok":false`. Players trying to return get
+  "the database is not answering" and it retries, rather than being told the game is gone.
+- Seat tokens are stored only as hashes.
+- The free plan allows 500,000 commands a month, which is several thousand games. Free databases are archived after
+  30 days with no data operations; if nobody plays for a month, create a new one and update the two variables.
+
+To run it yourself on a machine with a disk, set `ROOM_STORE_DIR=./data/rooms` instead and games are saved as files.
 
 ## Layout
 
