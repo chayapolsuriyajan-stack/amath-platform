@@ -100,6 +100,17 @@
   100% { transform: translate(calc(-50% + var(--x2)), calc(-50% - var(--rise))) scale(0.9) rotate(var(--r2)); opacity: 0; }
 }
 
+/* ---------- SUBMIT: green when the move is valid, grey when it is not ---------- */
+.buttons .submit:disabled { background: #7b8494; border-color: #7b8494; color: #2a303a; opacity: 0.55; cursor: not-allowed; }
+.buttons .submit.ready {
+  background: var(--green); border-color: var(--green); color: #fff;
+  box-shadow: 0 0 0 2px rgba(25, 169, 116, 0.35), 0 4px 16px rgba(25, 169, 116, 0.4);
+}
+.buttons .submit.ready:hover:not(:disabled) { background: #1fbf85; border-color: #1fbf85; }
+/* the line under the board while a move is being built */
+.status.draft-ok { color: #9ff5c0; font-weight: 600; }
+.status.draft-bad { color: #f3c97a; }
+
 /* ---------- the match clock ---------- */
 .big-clock {
   display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;

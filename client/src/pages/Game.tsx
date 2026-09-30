@@ -14,6 +14,7 @@ import { StartDraw } from '../components/StartDraw';
 import { StickerLayer, type Floater } from '../components/Stickers';
 import { Toast, describeError, type ToastData } from '../components/Toast';
 import { useFlip } from '../components/useFlip';
+import { checkDraft } from '../draft';
 import { call, clearToken, ensureConnected, getName, getToken, setName, setToken, socket, useSocketState } from '../net/socket';
 import { useServerStatus } from '../net/serverStatus';
 import { drawSeen, forgetSeat, markDrawSeen, saveSeat, savedSeats, type SavedSeat } from '../net/session';
@@ -379,6 +380,12 @@ function Room({ code, token, onSeatLost }: { code: string; token: string; onSeat
   const inRack = rackTiles.filter((t) => !pendingIds.has(t.id));
 
   const myTurn = !!state && !state.finished && state.turn === state.you;
+  // the same check the server makes, run on the tiles now on the board, so SUBMIT can say yes or no first
+  const draft = useMemo(
+    () => (state && rack ? checkDraft(state.board, rack, pending, state.firstMove) : null),
+    [state, rack, pending],
+  );
+  const canSubmit = myTurn && draft?.ok === true;
   const now = useServerNow(skew, !!state && !state.finished);
   const matchMs = (p: 0 | 1) =>
     state && state.matchSeconds > 0
@@ -475,6 +482,7 @@ function Room({ code, token, onSeatLost }: { code: string; token: string; onSeat
   };
 
   const submit = async () => {
+    if (!canSubmit) return;
     const placements: Placement[] = pending.map((p) => ({ tileId: p.tile.id, row: p.row, col: p.col, sym: p.sym }));
     const res = await send('game:move', { placements });
     if (res?.ok) {
@@ -537,7 +545,11 @@ function Room({ code, token, onSeatLost }: { code: string; token: string; onSeat
   const showDraw = !!drawKey && drawShown !== `${drawKey}:done`;
   if (showDraw && drawShown !== drawKey) setDrawShown(drawKey);
   const canExchange = myTurn && state.bagCount >= 5;
-  const turnText = state.finished ? 'Game over' : myTurn ? (state.firstMove ? 'Your turn — cover the ★ square' : 'Your turn') : `${state.names[opp]}’s turn`;
+  const baseTurnText = state.finished ? 'Game over' : myTurn ? (state.firstMove ? 'Your turn — cover the ★ square' : 'Your turn') : `${state.names[opp]}’s turn`;
+  // while you are building a move, the line under the board says whether it would be accepted
+  const showDraft = myTurn && draft !== null;
+  const turnText = !showDraft ? baseTurnText : draft.ok ? 'Looks good. Press SUBMIT.' : `Not valid yet: ${draft.reason}`;
+  const submitHint = !myTurn ? 'Wait for your turn' : draft === null ? 'Put some tiles on the board first' : draft.ok ? 'Submit this move' : draft.reason;
   const choiceTile = choice ? rack?.find((t) => t.id === choice.tileId) : undefined;
 
   return (
@@ -558,7 +570,7 @@ function Room({ code, token, onSeatLost }: { code: string; token: string; onSeat
           onPendingClick={takeBack}
           onPendingDragStart={dragStart}
         />
-        <div className={`status${myTurn ? ' mine' : ''}`} role="status">
+        <div className={`status${myTurn ? ' mine' : ''}${showDraft ? (draft.ok ? ' draft-ok' : ' draft-bad') : ''}`} role="status">
           {turnText}
           {oppTurn && state.opponentDraft.length ? <span className="building"> · building…</span> : null}
           {oppGone && !state.finished ? <span className="warn"> · {state.names[opp]} is disconnected</span> : null}
@@ -601,7 +613,7 @@ function Room({ code, token, onSeatLost }: { code: string; token: string; onSeat
         <MySettings prefs={prefs} compact />
         <div className="buttons">
           <button className="ghost" disabled={!canExchange} onClick={() => setExchangeOpen(true)}>Exchange</button>
-          <button className="submit" disabled={!myTurn || pending.length === 0} onClick={submit}>SUBMIT</button>
+          <button className={`submit${canSubmit ? ' ready' : ''}`} disabled={!canSubmit} title={submitHint} onClick={submit}>SUBMIT</button>
           <button className="ghost" disabled={pending.length === 0} onClick={recallAll}>Recall</button>
           <button className="ghost" onClick={shuffleRack}>Shuffle</button>
           {canPass ? <button className="ghost" onClick={() => send('game:pass')}>Pass</button> : null}
