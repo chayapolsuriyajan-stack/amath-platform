@@ -111,6 +111,14 @@
 .status.draft-ok { color: #9ff5c0; font-weight: 600; }
 .status.draft-bad { color: #f3c97a; }
 
+/* ---------- skipping a long scoring sequence ---------- */
+.combo-skip {
+  position: absolute; top: 14px; right: 16px; pointer-events: auto;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.25); color: #dbe6f5;
+  padding: 6px 14px; border-radius: 999px; font-size: 13px; letter-spacing: 0.5px;
+}
+.combo-skip:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); }
+
 /* ---------- the match clock ---------- */
 .big-clock {
   display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;

@@ -28,6 +28,7 @@ export type Prefs = ReturnType<typeof usePrefs>;
 export function MySettings({ prefs, compact = false }: { prefs: Prefs; compact?: boolean }) {
   const [open, setOpen] = useState(!compact);
   const summary = `Animation ${prefs.fx ? `on ${prefs.speed}x` : 'off'} · Sound ${prefs.sound ? 'on' : 'off'}`;
+  const speedHint: Record<number, string> = { 1: 'Slow and dramatic', 2: 'Medium', 4: 'Fast' };
 
   const body = (
     <div className="my-settings-body">
@@ -37,7 +38,7 @@ export function MySettings({ prefs, compact = false }: { prefs: Prefs; compact?:
         <button type="button" className={!prefs.fx ? 'on' : ''} aria-pressed={!prefs.fx} onClick={() => prefs.setFx(false)}>Off</button>
         {prefs.fx
           ? FX_SPEEDS.map((s) => (
-              <button key={s} type="button" className={prefs.speed === s ? 'on' : ''} aria-pressed={prefs.speed === s} onClick={() => prefs.setSpeed(s)}>
+              <button key={s} type="button" title={speedHint[s]} className={prefs.speed === s ? 'on' : ''} aria-pressed={prefs.speed === s} onClick={() => prefs.setSpeed(s)}>
                 {s}x
               </button>
             ))

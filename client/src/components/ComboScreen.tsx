@@ -1,16 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MoveBreakdown } from '@amath/shared';
 import { sfx } from '../sound/sfx';
-
-/** one beat of the animation */
-type Step =
-  | { kind: 'equation'; eq: number }
-  | { kind: 'tile'; eq: number; tile: number }
-  | { kind: 'mult'; eq: number }
-  | { kind: 'subtotal'; eq: number }
-  | { kind: 'bingo' }
-  | { kind: 'total' }
-  | { kind: 'done' };
+import { buildSteps, paceFor, punchFor, type Step } from './comboTiming';
 
 const PREMIUM_LABEL: Record<string, string> = {
   '2P': '×2 PIECE',
@@ -28,37 +19,6 @@ function tierOf(total: number): { name: string; shout: string } {
   if (total >= 30) return { name: 'big', shout: 'BIG!' };
   if (total >= 15) return { name: 'nice', shout: 'NICE' };
   return { name: 'plain', shout: '' };
-}
-
-function buildSteps(b: MoveBreakdown, speed: number): { step: Step; at: number }[] {
-  const out: { step: Step; at: number }[] = [];
-  let t = 0;
-  const tileCount = b.equations.reduce((n, e) => n + e.tiles.length, 0);
-  // keep long equations from dragging
-  const per = tileCount > 14 ? 70 : tileCount > 9 ? 95 : 130;
-  b.equations.forEach((eq, i) => {
-    out.push({ step: { kind: 'equation', eq: i }, at: t });
-    t += 420;
-    eq.tiles.forEach((_, j) => {
-      out.push({ step: { kind: 'tile', eq: i, tile: j }, at: t });
-      t += per;
-    });
-    t += 120;
-    if (eq.eqMult > 1) {
-      out.push({ step: { kind: 'mult', eq: i }, at: t });
-      t += 620;
-    }
-    out.push({ step: { kind: 'subtotal', eq: i }, at: t });
-    t += 520;
-  });
-  if (b.bingo) {
-    out.push({ step: { kind: 'bingo' }, at: t });
-    t += 780;
-  }
-  out.push({ step: { kind: 'total' }, at: t });
-  t += 1500;
-  out.push({ step: { kind: 'done' }, at: t });
-  return speed === 1 ? out : out.map((s) => ({ ...s, at: Math.round(s.at / speed) }));
 }
 
 function useCountUp(target: number, ms: number, run: boolean) {
@@ -120,9 +80,26 @@ export function ComboScreen({
   const [shake, setShake] = useState('');
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
+  // pauses between beats stretch a lot at the slow speeds; the hits themselves only somewhat
+  const pace = paceFor(speed);
+  const punch = punchFor(speed);
+
+  // a slow sequence can be cut short: Escape always, Space or Enter unless you are typing
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+      if (e.key === 'Escape' || (!typing && (e.key === ' ' || e.key === 'Enter'))) {
+        e.preventDefault();
+        doneRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
-    const timeline = buildSteps(move, speed);
+    const timeline = buildSteps(move, pace);
     const timers = timeline.map(({ step: s, at }) =>
       window.setTimeout(() => {
         if (s.kind === 'done') doneRef.current();
@@ -135,16 +112,16 @@ export function ComboScreen({
         else if (s.kind === 'total') sfx.total(move.total);
         if (s.kind === 'mult') {
           setShake('shake-hard');
-          window.setTimeout(() => setShake(''), 420 / speed);
+          window.setTimeout(() => setShake(''), 420 * punch);
         }
         if (s.kind === 'total' || s.kind === 'bingo') {
           setShake('shake-boom');
-          window.setTimeout(() => setShake(''), 700 / speed);
+          window.setTimeout(() => setShake(''), 700 * punch);
         }
       }, at),
     );
     return () => timers.forEach(clearTimeout);
-  }, [move, speed]);
+  }, [move, pace, punch]);
 
   const eqIndex = 'eq' in step ? step.eq : move.equations.length - 1;
   const eq = move.equations[Math.min(eqIndex, move.equations.length - 1)];
@@ -160,15 +137,18 @@ export function ComboScreen({
   // everything scored before this equation, so the running figure keeps climbing
   const before = move.equations.slice(0, eqIndex).reduce((n, e) => n + e.subtotal, 0);
   const tier = tierOf(move.total);
-  const total = useCountUp(move.total, 900 / speed, finale);
-  const sub = useCountUp(eq.subtotal, 380 / speed, showSub);
+  const total = useCountUp(move.total, 900 * punch, finale);
+  const sub = useCountUp(eq.subtotal, 380 * punch, showSub);
 
   return (
     <div
       className={`combo ${shake} ${finale ? `finale tier-${tier.name}` : ''}`}
-      style={{ ['--fxd' as string]: String(1 / speed) }}
+      style={{ ['--fxd' as string]: String(punch) }}
       aria-live="polite"
     >
+      <button type="button" className="combo-skip" onClick={() => doneRef.current()} title="Skip (Esc or Space)">
+        Skip ›
+      </button>
       <div className="combo-inner">
         <div className="combo-who">{mine ? 'YOU SCORED' : `${who} SCORED`}</div>
 

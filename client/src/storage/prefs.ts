@@ -1,6 +1,8 @@
 /** Personal preferences, kept per browser. They never affect the other player. */
 const FX_KEY = 'amath.fx';
-const SPEED_KEY = 'amath.fxSpeed';
+// A new key: what "1x" means changed (it is now the slow pace, and the old 1x is 4x), so a
+// speed saved under the old meaning must not be read as if it still had it.
+const SPEED_KEY = 'amath.fxSpeed2';
 const SOUND_KEY = 'amath.sound';
 const VOLUME_KEY = 'amath.volume';
 
@@ -59,7 +61,7 @@ export function setFx(on: boolean) {
   }
 }
 
-/** How fast the scoring animation plays: 1x, 2x or 4x. Defaults to 1x. */
+/** How fast the scoring animation plays: 1x (slow, the default), 2x or 4x (fast). */
 export function getFxSpeed(): FxSpeed {
   try {
     const n = Number(localStorage.getItem(SPEED_KEY));
