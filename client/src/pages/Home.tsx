@@ -5,7 +5,10 @@ import {
 } from '@amath/shared';
 import type { BotLevel, JoinAck } from '@amath/shared';
 import { MySettings, usePrefs } from '../components/MySettings';
+import { ServerWake } from '../components/ServerWake';
 import { call, getName, setName, setToken } from '../net/socket';
+import { useServerStatus } from '../net/serverStatus';
+import { ago, forgetSeat, lastGame } from '../net/session';
 
 const BOT_BLURB: Record<BotLevel, string> = {
   easy: 'Short, simple equations. Good for learning.',
@@ -16,6 +19,9 @@ const BOT_BLURB: Record<BotLevel, string> = {
 export function Home() {
   const nav = useNavigate();
   const prefs = usePrefs();
+  const server = useServerStatus();
+  // a game you were in a moment ago, in case the tab was closed by accident
+  const [resume, setResume] = useState(() => lastGame());
   const [name, setNameState] = useState(getName());
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
@@ -28,6 +34,7 @@ export function Home() {
 
   const enter = async (event: 'room:create' | 'room:join', bot?: BotLevel) => {
     setError('');
+    if (!server.ready) return setError('The game server is still waking up. It will be ready in a moment.');
     if (event === 'room:join' && !isRoomCode(code)) return setError('Enter the 6-digit room code');
     if (event === 'room:create' && matchBad) return setError('Write the match clock as minutes:seconds, like 20:00');
     setBusy(true);
@@ -40,7 +47,7 @@ export function Home() {
     });
     setBusy(false);
     if (!res.ok) return setError(res.error);
-    setToken(res.code, res.token);
+    setToken(res.code, res.token, name.trim() || 'Player');
     nav(`/room/${res.code}`);
   };
 
@@ -51,6 +58,32 @@ export function Home() {
           A-Math <small>v1.1</small>
         </h1>
         <p>A-Math is a simple math scrabble board game, like crossword but with numbers and operators. A valid equation is a valid sequence.</p>
+
+        <ServerWake status={server} />
+
+        {resume ? (
+          <div className="resume" role="region" aria-label="Resume your game">
+            <div className="resume-top">
+              <span className="resume-text">
+                <b>Resume your game</b>
+                <small>Room {resume.code} as {resume.name} · {ago(Date.now() - resume.at)}</small>
+              </span>
+              <span className="resume-actions">
+                <button type="button" onClick={() => nav(`/room/${resume.code}`)}>Resume</button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    forgetSeat(resume.code);
+                    setResume(lastGame());
+                  }}
+                >
+                  Dismiss
+                </button>
+              </span>
+            </div>
+          </div>
+        ) : null}
 
         <label className="field">
           <span>Nickname</span>
@@ -94,7 +127,7 @@ export function Home() {
         </fieldset>
 
         <div className="home-actions">
-          <button disabled={busy || matchBad} onClick={() => enter('room:create')}>New Game</button>
+          <button disabled={busy || matchBad || !server.ready} onClick={() => enter('room:create')}>New Game</button>
         </div>
 
         <fieldset className="settings">
@@ -107,7 +140,7 @@ export function Home() {
                 </button>
               ))}
             </div>
-            <button className="play-bot" disabled={busy || matchBad} onClick={() => enter('room:create', botLevel)}>
+            <button className="play-bot" disabled={busy || matchBad || !server.ready} onClick={() => enter('room:create', botLevel)}>
               Play vs Bot
             </button>
           </div>
@@ -130,7 +163,7 @@ export function Home() {
             onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             aria-label="Room code"
           />
-          <button className="ghost" disabled={busy || code.length !== 6}>Join</button>
+          <button className="ghost" disabled={busy || code.length !== 6 || !server.ready}>Join</button>
         </form>
         {error ? <p className="error">{error}</p> : null}
       </div>

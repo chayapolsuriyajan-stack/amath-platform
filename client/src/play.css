@@ -187,3 +187,60 @@
 @media (prefers-reduced-motion: reduce) {
   .draw-tile { transition: none; }
 }
+
+/* ---------- waking the server ---------- */
+.wake { margin: 14px 0 0; padding: 12px 14px; border-radius: 8px; border: 1px solid #3c4756; background: #202733; text-align: left; }
+.wake-top { display: flex; align-items: center; gap: 8px; }
+.wake-top b { flex: 1; font-size: 14px; }
+.wake-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+.wake-bar { height: 9px; border-radius: 99px; background: #111722; overflow: hidden; margin: 10px 0 6px; }
+.wake-bar i {
+  display: block; height: 100%; border-radius: 99px; position: relative; overflow: hidden;
+  background: linear-gradient(90deg, var(--blue), #7fd4ff); transition: width 0.3s linear;
+}
+.wake-bar i::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: translateX(-100%); animation: shimmer 1.6s linear infinite;
+}
+.wake-detail { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.wake.slow { border-color: #c2410c; }
+.wake.slow .wake-bar i { background: linear-gradient(90deg, #c2410c, #ff9a3c); }
+.wake.ready { border-color: var(--green); background: #12332a; }
+.wake-spinner {
+  flex: none; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid #4b5563; border-top-color: #7fd4ff; animation: spin 0.8s linear infinite;
+}
+.wake-check {
+  flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--green); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 900;
+}
+.wake-actions { display: flex; gap: 8px; margin-top: 10px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { to { transform: translateX(100%); } }
+
+/* ---------- connection lost during a game ---------- */
+.conn-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 95;
+  padding: 10px 14px 12px; background: #3a2a0e; border-bottom: 2px solid var(--yellow); color: #fff3c9;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); animation: toastIn 0.3s ease-out;
+}
+.conn-banner > * { max-width: 560px; margin-left: auto; margin-right: auto; }
+.conn-row { display: flex; align-items: center; gap: 10px; }
+.conn-text { flex: 1; font-size: 14px; }
+.conn-text span { color: #f3dd9d; }
+.conn-note { margin: 8px auto 0; font-size: 12px; color: #f3dd9d; }
+.conn-banner .wake { background: rgba(0, 0, 0, 0.25); }
+
+/* ---------- picking a game back up ---------- */
+.resume { margin: 16px 0 0; padding: 12px 14px; border-radius: 8px; border: 1px solid #1d5fbf; background: #12294a; text-align: left; }
+.resume-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.resume-text { flex: 1; min-width: 180px; font-size: 14px; }
+.resume-text small { display: block; color: #9ec5f8; font-size: 12px; margin-top: 2px; }
+.resume-actions { display: flex; gap: 8px; }
+.seat-choices { display: flex; flex-direction: column; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wake-spinner { animation-duration: 2s; }
+  .wake-bar i::after { animation: none; }
+}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { allowedSyms, isRoomCode } from '@amath/shared';
-import type { Ack, JoinAck, MoveBreakdown, Placement, RoomUpdate, Sticker, StickerEvent, Tile } from '@amath/shared';
+import type { Ack, JoinAck, MoveBreakdown, Placement, PublicState, RoomUpdate, Sticker, StickerEvent, Tile } from '@amath/shared';
 import { Board, type PendingTile } from '../components/Board';
 import { Chat } from '../components/Chat';
 import { MatchClock, useServerNow } from '../components/Clock';
@@ -9,11 +9,14 @@ import { ComboScreen } from '../components/ComboScreen';
 import { ChoiceDialog, ExchangeDialog, GameOverDialog } from '../components/Dialogs';
 import { MySettings, usePrefs } from '../components/MySettings';
 import { MoveLog, ScoreCard, TileTracker } from '../components/Panels';
+import { ConnectionBanner, ServerWake } from '../components/ServerWake';
 import { StartDraw } from '../components/StartDraw';
 import { StickerLayer, type Floater } from '../components/Stickers';
 import { Toast, describeError, type ToastData } from '../components/Toast';
 import { useFlip } from '../components/useFlip';
-import { call, ensureConnected, getName, getToken, setName, setToken, socket } from '../net/socket';
+import { call, clearToken, ensureConnected, getName, getToken, setName, setToken, socket, useSocketState } from '../net/socket';
+import { useServerStatus } from '../net/serverStatus';
+import { drawSeen, forgetSeat, markDrawSeen, saveSeat, savedSeats, type SavedSeat } from '../net/session';
 import { recordFromState, saveMatch } from '../storage/history';
 import { sfx } from '../sound/sfx';
 
@@ -34,9 +37,110 @@ const reducedMotion = () =>
 export function Game() {
   const { code = '' } = useParams();
   const [token, setTok] = useState(() => getToken(code));
+  const [wantsNewSeat, setWantsNewSeat] = useState(false);
+  // seats this browser remembers for the room, for when this tab has lost its own
+  const saved = useMemo(() => savedSeats(code), [code, token]);
   if (!isRoomCode(code)) return <Notice title="Invalid room code" text="Room codes have 6 digits." />;
-  if (!token) return <JoinPrompt code={code} onJoined={setTok} />;
-  return <Room code={code} token={token} />;
+  if (token) {
+    return (
+      <Room
+        code={code}
+        token={token}
+        onSeatLost={() => {
+          forgetSeat(code, token);
+          clearToken(code);
+          setWantsNewSeat(true);
+          setTok(null);
+        }}
+      />
+    );
+  }
+  if (saved.length > 0 && !wantsNewSeat) {
+    return (
+      <WelcomeBack
+        code={code}
+        seats={saved}
+        onRejoin={(s) => {
+          setToken(code, s.token, s.name);
+          setTok(s.token);
+        }}
+        onOther={() => setWantsNewSeat(true)}
+      />
+    );
+  }
+  return <JoinPrompt code={code} onJoined={setTok} />;
+}
+
+/** this tab has no seat, but the browser remembers one: offer to take it back */
+function WelcomeBack({
+  code, seats, onRejoin, onOther,
+}: { code: string; seats: SavedSeat[]; onRejoin: (s: SavedSeat) => void; onOther: () => void }) {
+  return (
+    <div className="page center">
+      <div className="panel">
+        <h2>Welcome back</h2>
+        <p className="muted">You have a seat in room {code}. Pick it up where you left off.</p>
+        <div className="seat-choices">
+          {seats.map((s) => (
+            <button key={s.token} onClick={() => onRejoin(s)}>Rejoin as {s.name || 'Player'}</button>
+          ))}
+        </div>
+        <button className="ghost" onClick={onOther}>Join as a different player</button>
+        <Link className="link" to="/">Back</Link>
+      </div>
+    </div>
+  );
+}
+
+/** a game that cannot be reopened: say why, and what to do about it */
+function GameGone({
+  kind, last, onNewSeat,
+}: { kind: 'room' | 'seat'; last: PublicState | null; onNewSeat: () => void }) {
+  if (kind === 'seat') {
+    return (
+      <div className="page center">
+        <div className="panel">
+          <h2>We couldn’t find your seat</h2>
+          <p>This game is still running, but your saved seat in it doesn’t match. That happens when the link belongs to someone else’s game.</p>
+          <button onClick={onNewSeat}>Join as a new player</button>
+          <Link className="link" to="/">Home</Link>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="page center">
+      <div className="panel">
+        <h2>This game is no longer on the server</h2>
+        <p>
+          Games are kept in the server’s memory, and the free server restarts after it has been idle or when it is updated.
+          When that happens every open game is lost, and this one couldn’t be recovered.
+        </p>
+        {last ? (
+          <p className="muted">
+            The last score we saw: {last.names[last.you]} {last.scores[last.you]} – {last.scores[last.you === 0 ? 1 : 0]}{' '}
+            {last.names[last.you === 0 ? 1 : 0]}
+          </p>
+        ) : null}
+        <Link className="btn" to="/">Start a new game</Link>
+      </div>
+    </div>
+  );
+}
+
+/** shown while we have not heard from the room yet: after a reload, or while the server wakes */
+function ReconnectingScreen({ code }: { code: string }) {
+  const server = useServerStatus();
+  return (
+    <div className="page center">
+      <div className="panel">
+        <h2>Reconnecting to your game…</h2>
+        <p className="muted">Room {code}</p>
+        {server.waking ? <ServerWake status={server} /> : <p className="muted pulse">Connecting…</p>}
+        <Link className="link" to="/">Cancel</Link>
+      </div>
+    </div>
+  );
 }
 
 function Notice({ title, text }: { title: string; text: string }) {
@@ -55,13 +159,15 @@ function JoinPrompt({ code, onJoined }: { code: string; onJoined: (t: string) =>
   const [name, setNameState] = useState(getName());
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const server = useServerStatus();
   const join = async () => {
+    setError('');
     setBusy(true);
     setName(name.trim());
     const res = await call<JoinAck>('room:join', { code, name: name.trim() });
     setBusy(false);
     if (res.ok) {
-      setToken(res.code, res.token);
+      setToken(res.code, res.token, name.trim() || 'Player');
       onJoined(res.token);
     } else setError(res.error);
   };
@@ -69,19 +175,32 @@ function JoinPrompt({ code, onJoined }: { code: string; onJoined: (t: string) =>
     <div className="page center">
       <div className="panel">
         <h2>Join room {code}</h2>
+        <ServerWake status={server} />
         <input value={name} maxLength={16} placeholder="Your nickname" onChange={(e) => setNameState(e.target.value)} />
-        <button disabled={busy} onClick={join}>Join game</button>
+        <button disabled={busy || !server.ready} onClick={join}>Join game</button>
         {error ? <p className="error">{error}</p> : null}
+        {error === 'This room is full' ? (
+          <p className="muted">
+            If you were already playing in this room, open this link in the browser you started in, or use Resume on the home page.
+          </p>
+        ) : null}
         <Link className="link" to="/">Back</Link>
       </div>
     </div>
   );
 }
 
-function Room({ code, token }: { code: string; token: string }) {
+function Room({ code, token, onSeatLost }: { code: string; token: string; onSeatLost: () => void }) {
   const nav = useNavigate();
   const [update, setUpdate] = useState<RoomUpdate | null>(null);
   const [fatal, setFatal] = useState('');
+  /** why the room cannot be reopened: it is gone, or our seat in it is not recognised */
+  const [gone, setGone] = useState<'room' | 'seat' | null>(null);
+  const [retryNote, setRetryNote] = useState('');
+  const conn = useSocketState();
+  const server = useServerStatus();
+  /** the last state we saw, to show a final score if the room disappears */
+  const lastSeen = useRef<PublicState | null>(null);
   const [toast, setToast] = useState<ToastData | null>(null);
   const toastId = useRef(0);
   const showError = useCallback((error: string) => setToast(describeError(error, ++toastId.current)), []);
@@ -111,11 +230,19 @@ function Room({ code, token }: { code: string; token: string }) {
   /** true once we have taken a first state snapshot for this room */
   const primed = useRef(false);
 
-  // connect + (re)claim the seat whenever the socket (re)connects
+  // connect + (re)claim the seat whenever the socket (re)connects, and react to why it might fail
   useEffect(() => {
+    let retry: number | undefined;
     const rejoin = () => {
       (socket as never as { emit: (...a: unknown[]) => void }).emit('room:rejoin', { code, token }, (r: Ack) => {
-        if (!r.ok) setFatal(r.error);
+        if (r.ok) return setRetryNote('');
+        if (r.code === 'rate-limit') {
+          // temporary: keep trying, this is not the end of the game
+          setRetryNote('Too many attempts from this network. Trying again in a few seconds…');
+          retry = window.setTimeout(rejoin, 6000);
+        } else if (r.code === 'no-room') setGone('room');
+        else if (r.code === 'no-seat') setGone('seat');
+        else setFatal(r.error);
       });
     };
     const onUpdate = (u: RoomUpdate) => u.code === code && setUpdate(u);
@@ -124,6 +251,7 @@ function Room({ code, token }: { code: string; token: string }) {
     ensureConnected();
     if (socket.connected) rejoin();
     return () => {
+      clearTimeout(retry);
       socket.off('room:update', onUpdate);
       socket.off('connect', rejoin);
     };
@@ -131,6 +259,18 @@ function Room({ code, token }: { code: string; token: string }) {
 
   const state = update?.state ?? null;
   const rack = state?.myRack;
+  if (state) lastSeen.current = state;
+
+  // a game that is over is not one to offer resuming; one in progress is, in case the tab is closed
+  useEffect(() => {
+    if (!state) return;
+    if (state.finished) forgetSeat(code, token);
+    else saveSeat(code, token, state.names[state.you]);
+  }, [code, token, state?.finished, state?.you]);
+  // a room the server no longer knows should stop being offered
+  useEffect(() => {
+    if (gone === 'room') forgetSeat(code);
+  }, [gone, code]);
   // read by the sticker listener, which is set up once per room
   const youRef = useRef<0 | 1 | null>(null);
   youRef.current = state?.you ?? null;
@@ -143,8 +283,20 @@ function Room({ code, token }: { code: string; token: string }) {
   // stable, so each sticker's removal timer is not reset by every clock tick
   const removeFloater = useCallback((key: number) => setFloaters((f) => f.filter((x) => x.key !== key)), []);
   // the opening draw is shown once per game, before the first move
-  const [drawShown, setDrawShown] = useState<string | null>(null);
-  const hideDraw = useCallback(() => setDrawShown((k) => (k ? `${k}:done` : k)), []);
+  // and not again after a reload: this tab remembers having shown it
+  const [drawShown, setDrawShown] = useState<string | null>(() => {
+    const seen = drawSeen(code);
+    return seen ? `${seen}:done` : null;
+  });
+  const hideDraw = useCallback(
+    () =>
+      setDrawShown((k) => {
+        if (!k || k.endsWith(':done')) return k;
+        markDrawSeen(code, k);
+        return `${k}:done`;
+      }),
+    [code],
+  );
 
   // the opponent's stickers drift up from their score card
   useEffect(() => {
@@ -339,12 +491,16 @@ function Room({ code, token }: { code: string; token: string }) {
     }
   };
 
-  if (fatal) return <Notice title="Cannot open this room" text={`${fatal}. The room may have expired.`} />;
+  if (gone) return <GameGone kind={gone} last={lastSeen.current} onNewSeat={onSeatLost} />;
+  if (fatal) return <Notice title="Cannot open this room" text={`${fatal}. Reload the page to try again.`} />;
+  // no word from the room yet: right after a reload, or while the server is waking
+  if (!update) return <ReconnectingScreen code={code} />;
 
   // waiting for the second player
   if (!state) {
     return (
       <div className="page center">
+        {!conn.connected ? <ConnectionBanner attempt={conn.attempt} status={server} /> : null}
         <div className="panel room-code-panel">
           <h2>Game room code</h2>
           <p className="muted">Send this 6-digit code to your friend. They can type it on the home page.</p>
@@ -353,7 +509,7 @@ function Room({ code, token }: { code: string; token: string }) {
             <button onClick={() => copy('code')}>{copied === 'code' ? 'Copied!' : 'Copy code'}</button>
             <button className="ghost" onClick={() => copy('link')}>{copied === 'link' ? 'Copied!' : 'Copy link'}</button>
           </div>
-          <p className="muted pulse">{update ? 'Waiting for your friend to join…' : 'Connecting…'}</p>
+          <p className="muted pulse">Waiting for your friend to join…</p>
           <Link className="link" to="/">Cancel</Link>
         </div>
       </div>
@@ -375,6 +531,8 @@ function Room({ code, token }: { code: string; token: string }) {
 
   return (
     <div className="game" ref={rootRef}>
+      {!conn.connected ? <ConnectionBanner attempt={conn.attempt} status={server} /> : null}
+      {retryNote && conn.connected ? <div className="conn-banner" role="status"><p className="conn-note">{retryNote}</p></div> : null}
       <TileTracker unseen={state.unseen} />
 
       <main className="play">

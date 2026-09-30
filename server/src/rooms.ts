@@ -5,7 +5,7 @@ import {
 } from '@amath/shared';
 import type { BotLevel } from '@amath/shared';
 import type {
-  Ack, ChatMessage, DraftTile, GameState, JoinAck, Placement, PublicState, RoomSettings, RoomUpdate, StickerEvent,
+  Ack, ChatMessage, DraftTile, FailCode, GameState, JoinAck, Placement, PublicState, RoomSettings, RoomUpdate, StickerEvent,
 } from '@amath/shared';
 
 interface Seat {
@@ -104,12 +104,12 @@ export class Rooms {
   }
 
   /** returns the seat index when the token matches */
-  rejoin(code: unknown, token: unknown, socketId: string): { ok: true; room: Room; seat: 0 | 1 } | { ok: false; error: string } {
+  rejoin(code: unknown, token: unknown, socketId: string): { ok: true; room: Room; seat: 0 | 1 } | { ok: false; error: string; code?: FailCode } {
     if (typeof code !== 'string' || typeof token !== 'string') return { ok: false, error: 'Bad request' };
     const room = this.rooms.get(code);
-    if (!room) return { ok: false, error: 'Room not found' };
+    if (!room) return { ok: false, error: 'Room not found', code: 'no-room' };
     const seat = room.seats.findIndex((s) => !s.bot && s.token !== '' && s.token === token);
-    if (seat < 0) return { ok: false, error: 'Seat not found' };
+    if (seat < 0) return { ok: false, error: 'Seat not found', code: 'no-seat' };
     room.seats[seat].socketId = socketId;
     room.lastActive = Date.now();
     return { ok: true, room, seat: seat as 0 | 1 };

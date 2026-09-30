@@ -65,7 +65,17 @@ export function createApp(opts: { botDelayScale?: number } = {}) {
   const joinAttempts = new Map<string, number[]>();
 
   app.disable('x-powered-by');
-  app.get('/health', (_req, res) => res.json({ ok: true, rooms: rooms.rooms.size }));
+  app.get('/health', (req, res) => {
+    // the site polls this to show wake-up progress; Render's own "waking up" page has no CORS
+    // header, so a response that can be read here means the real server is up
+    const origin = req.headers.origin;
+    if (origin && originAllowed(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, rooms: rooms.rooms.size });
+  });
 
   const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../client/dist');
   if (existsSync(dist)) {
@@ -93,13 +103,18 @@ export function createApp(opts: { botDelayScale?: number } = {}) {
     bots.poke(room);
   };
 
-  const joinAllowed = (ip: string) => {
+  const recentAttempts = (ip: string) => {
     const now = Date.now();
     const recent = (joinAttempts.get(ip) ?? []).filter((t) => now - t < 60_000);
-    const ok = recent.length < JOIN_ATTEMPTS_PER_MINUTE;
-    if (ok) recent.push(now);
     joinAttempts.set(ip, recent);
-    return ok;
+    return recent;
+  };
+  /** spends one attempt; false once the address has used its budget for the minute */
+  const joinAllowed = (ip: string) => {
+    const recent = recentAttempts(ip);
+    if (recent.length >= JOIN_ATTEMPTS_PER_MINUTE) return false;
+    recent.push(Date.now());
+    return true;
   };
 
   io.on('connection', (socket) => {
@@ -112,7 +127,7 @@ export function createApp(opts: { botDelayScale?: number } = {}) {
     const guard = <T extends { ok: false; error: string }>(cb: unknown, fn: (c: { room: Room; seat: 0 | 1 }) => { ok: true } | T) => {
       const send = reply(cb);
       if (!allow()) return send({ ok: false, error: 'Too many requests, slow down' });
-      if (!current) return send({ ok: false, error: 'You are not in a room' });
+      if (!current) return send({ ok: false, error: 'You are not in a room', code: 'not-in-room' });
       const res = fn(current);
       send(res);
       if (res.ok) broadcast(current.room);
@@ -129,7 +144,7 @@ export function createApp(opts: { botDelayScale?: number } = {}) {
     });
 
     socket.on('room:join', (a, cb) => {
-      if (!allow() || !joinAllowed(ip)) return reply(cb)({ ok: false, error: 'Too many attempts, wait a minute' });
+      if (!allow() || !joinAllowed(ip)) return reply(cb)({ ok: false, error: 'Too many attempts, wait a minute', code: 'rate-limit' });
       const res = rooms.join(a?.code, a?.name, socket.id);
       if (res.ok) {
         current = { room: rooms.rooms.get(res.code)!, seat: 1 };
@@ -139,13 +154,20 @@ export function createApp(opts: { botDelayScale?: number } = {}) {
     });
 
     socket.on('room:rejoin', (a, cb) => {
-      if (!allow() || !joinAllowed(ip)) return reply(cb)({ ok: false, error: 'Too many attempts, wait a minute' });
+      // Getting back into your own seat needs a 128-bit secret, so success is never counted:
+      // everyone on one network can reload or reconnect as often as they like. Only failed
+      // guesses spend the address's budget.
+      const limited = { ok: false, error: 'Too many attempts, wait a minute', code: 'rate-limit' } as const;
+      if (!allow() || recentAttempts(ip).length >= JOIN_ATTEMPTS_PER_MINUTE) return reply(cb)(limited);
       const res = rooms.rejoin(a?.code, a?.token, socket.id);
       if (res.ok) {
         current = { room: res.room, seat: res.seat };
         broadcast(res.room);
+        return reply(cb)({ ok: true });
       }
-      reply(cb)(res.ok ? { ok: true } : res);
+      // a room that has simply expired is not a guess; a wrong token for a live room is
+      if (res.code === 'no-seat') recentAttempts(ip).push(Date.now());
+      reply(cb)(res);
     });
 
     socket.on('chat:send', (a, cb) => guard(cb, (c) => rooms.chat(c.room, c.seat, a?.text)));

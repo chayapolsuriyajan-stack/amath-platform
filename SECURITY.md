@@ -21,8 +21,9 @@ the score, the board, the bag or the clock.
 | Acting out of turn, or after the game ends | Checked on every action. |
 | Stalling past the clock | Each player's match clock is kept and charged on the server's own time. A player 5 minutes past zero loses, even if they never send anything again. |
 | Faking the opponent's "building" tiles | A draft is accepted only from the player on turn, only with tiles in their own rack, only on empty squares. It is relayed without tile ids and cleared once the turn ends. |
-| Taking over someone's seat | Rejoining needs a 128-bit random token that only that player's browser holds. |
+| Taking over someone's seat | Rejoining needs a 128-bit random token that only that player's browser holds. The token is kept in the tab (so a reload goes straight back in) and in the browser (so a closed tab can be resumed, after the player picks the seat). |
 | Guessing room codes to crash other games | Joining is limited to 20 attempts per minute per address, read from the proxy header in a way the client cannot fake. |
+| Guessing seat tokens | Only *failed* rejoin attempts spend that same budget. A successful rejoin needs the 128-bit token, so it is never counted; otherwise five friends on one Wi-Fi reloading or reconnecting could lock each other out of their own games. A room that has expired is not a failed guess either. |
 | Flooding the server | Every connection has a request budget; messages over 16 KB are refused; stickers are capped at 8 per 2 seconds; the server holds at most 5,000 rooms. |
 | Other websites driving the game in a visitor's browser | Connections are accepted only from the game's own sites (the Vercel app, the Render server, localhost). |
 | Script injection through names, chat or stickers | Names and chat are trimmed and stripped of control characters, and the page renders all text as text. Stickers must be one of six known names. |
