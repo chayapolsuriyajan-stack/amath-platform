@@ -48,5 +48,6 @@ the score, the board, the bag or the clock.
 - **Drafts are visible on purpose.** The opponent sees whatever tiles you put down before submitting, including ones you take back.
 - **The origin check only stops browsers.** A script can send any Origin header it likes. That is fine because every game rule is enforced on the server regardless.
 - **Without a database, rooms live in memory** and are lost whenever the free server sleeps or redeploys. With one, they survive (see the README), apart from what happened in the fraction of a second before a crash.
+- **`/health` is public.** It shows whether games are saved and how many database commands this run has used: counts only, no game data, and never the reason for a failure.
 - **The database holds full games,** including both racks and the bag. Anyone with access to it can see every hidden tile, so treat the Upstash token like a password. Seat tokens are hashed, so it cannot be used to take a seat.
 - **A restart resets a turn's thinking time.** A turn resumes with the time it had used when it was last saved, so time the server was down is never charged, and someone who was thinking before a crash gets that back.

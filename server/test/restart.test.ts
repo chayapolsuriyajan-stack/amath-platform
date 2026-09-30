@@ -246,7 +246,7 @@ describe('saving', () => {
     expect(store.saves - before).toBe(1);
   });
 
-  it('does not save what nobody needs saved: a refused move, a draft, a sticker', async () => {
+  it('does not save what nobody needs saved: a refused move, a draft, a sticker, a chat line', async () => {
     const store = new CountingStore();
     const one = await boot(store);
     const { a, code } = await twoPlayers(one);
@@ -255,6 +255,7 @@ describe('saving', () => {
     await emit(a, 'game:move', { placements: [{ tileId: 501, row: 0, col: 0 }] }); // not on the star
     a.emit('game:draft', { placements: [{ tileId: 501, row: 7, col: 7 }] });
     a.emit('chat:sticker', { sticker: 'gg' });
+    expect((await emit<{ ok: boolean }>(a, 'chat:send', { text: 'nice opening' })).ok).toBe(true);
     await sleep(600);
     expect(store.saves).toBe(before);
     expect(store.data.has(code)).toBe(true);
@@ -292,6 +293,110 @@ describe('saving', () => {
     await shutDown(one);
     const saved = JSON.parse(store.data.get(code)!.json) as { game: { log: unknown[] } };
     expect(saved.game.log).toHaveLength(1);
+  });
+});
+
+describe('chat and saving', () => {
+  const MIN = 60_000;
+  const savedChat = (store: MemoryStore, code: string) =>
+    (JSON.parse(store.data.get(code)!.json) as { chat: { text: string }[] }).chat.map((m) => m.text);
+
+  it('costs nothing on its own but goes out with the next move', async () => {
+    const store = new MemoryStore();
+    const one = await boot(store);
+    const { a, code } = await twoPlayers(one);
+    await sleep(500);
+    await emit(a, 'chat:send', { text: 'first' });
+    await sleep(500);
+    expect(savedChat(store, code)).toEqual([]); // not written yet
+    await emit(a, 'game:move', { placements: opening });
+    await sleep(600);
+    expect(savedChat(store, code)).toEqual(['first']); // carried by the move
+  });
+
+  it('is written when the server shuts down, even if no move followed', async () => {
+    const store = new MemoryStore();
+    const one = await boot(store);
+    const { a, code, aToken } = await twoPlayers(one);
+    await sleep(500);
+    await emit(a, 'chat:send', { text: 'see you tomorrow' });
+    await shutDown(one);
+    expect(savedChat(store, code)).toEqual(['see you tomorrow']);
+
+    const two = await boot(store);
+    const ann = client(two);
+    const back = waitFor(ann, (u) => u.state !== null);
+    await emit(ann, 'room:rejoin', { code, token: aToken });
+    expect((await back).state!.chat.map((m) => m.text)).toEqual(['see you tomorrow']);
+  });
+
+  it('is written when an abandoned room leaves memory', async () => {
+    const store = new MemoryStore();
+    const one = await boot(store);
+    const { a, bs, code } = await twoPlayers(one);
+    await sleep(500);
+    await emit(a, 'chat:send', { text: 'gone for lunch' });
+    a.close();
+    bs.close();
+    await sleep(300);
+    one.app.rooms.sweep(Date.now() + 31 * MIN);
+    await sleep(100);
+    expect(one.app.rooms.rooms.has(code)).toBe(false);
+    expect(savedChat(store, code)).toEqual(['gone for lunch']);
+  });
+
+  it('is not forgotten when the save that should carry it fails', async () => {
+    class FailsOnce extends MemoryStore {
+      fail = false;
+      override async save(code: string, json: string, ttl: number) {
+        if (this.fail) throw new StoreError('the database could not be reached');
+        return super.save(code, json, ttl);
+      }
+    }
+    const store = new FailsOnce();
+    const one = await boot(store);
+    const { a, code } = await twoPlayers(one);
+    await sleep(500);
+    await emit(a, 'chat:send', { text: 'important' });
+    store.fail = true;
+    await one.app.rooms.flush(); // tries to write, fails
+    expect(one.app.rooms.rooms.get(code)!.chatUnsaved).toBe(true);
+    store.fail = false;
+    await one.app.rooms.flush(); // and tries again
+    expect(savedChat(store, code)).toEqual(['important']);
+    expect(one.app.rooms.rooms.get(code)!.chatUnsaved).toBe(false);
+  });
+});
+
+describe('counting database use', () => {
+  it('shows on /health what this run has spent, matching what the store was actually asked', async () => {
+    const store = new MemoryStore();
+    const one = await boot(store);
+    const { a, code, aToken } = await twoPlayers(one);
+    await emit(a, 'game:move', { placements: opening });
+    await sleep(600);
+    await shutDown(one);
+
+    const two = await boot(store);
+    await emit(client(two), 'room:rejoin', { code, token: aToken }); // one load, from the store
+    await sleep(100);
+    const health = (await (await fetch(`${two.url}/health`)).json()) as {
+      store: { usage: { commands: number; saves: number; loads: number; checks: number; removes: number; bytesReceived: number; failures: number; since: number } };
+    };
+    const u = health.store.usage;
+    expect(u.loads).toBe(1);
+    expect(u.bytesReceived).toBe(Buffer.byteLength(store.data.get(code)!.json));
+    expect(u.failures).toBe(0);
+    expect(u.commands).toBe(u.saves + u.loads + u.removes + u.checks);
+    expect(u.since).toBeLessThanOrEqual(Date.now());
+
+    // and the first server had spent commands of its own. The room, the second player joining and the
+    // opening move all happened inside one save delay, so they went out as a single save.
+    const first = one.app.store!.status().usage;
+    expect(first.saves).toBe(1);
+    expect((JSON.parse(store.data.get(code)!.json) as { game: { log: unknown[] } }).game.log).toHaveLength(1);
+    expect(first.checks).toBe(1); // the free-code check when the room was created
+    expect(first.bytesSent).toBe(Buffer.byteLength(store.data.get(code)!.json));
   });
 });
 
@@ -337,10 +442,10 @@ describe('when the database has trouble', () => {
     await sleep(600);
     const health = (await (await fetch(`${one.url}/health`)).json()) as { persistent: boolean; store: { kind: string; ok: boolean } };
     expect(health.persistent).toBe(true);
-    expect(health.store).toEqual({ kind: 'memory', ok: false });
-    // and it heals itself
+    expect(health.store).toMatchObject({ kind: 'memory', ok: false });
+    // and it heals itself on the next save (a pass is a change worth saving; chat is not)
     store.failSave = false;
-    await emit(bs, 'chat:send', { text: 'back' });
+    expect((await emit<{ ok: boolean }>(bs, 'game:pass')).ok).toBe(true);
     await sleep(700);
     const after = (await (await fetch(`${one.url}/health`)).json()) as { store: { ok: boolean } };
     expect(after.store.ok).toBe(true);
@@ -359,7 +464,7 @@ describe('when the database has trouble', () => {
     await sleep(600);
     const text = await (await fetch(`${saved.url}/health`)).text();
     expect(text).not.toContain('could not be reached');
-    expect(JSON.parse(text).store).toEqual({ kind: 'memory', ok: false });
+    expect(JSON.parse(text).store).toMatchObject({ kind: 'memory', ok: false });
   });
 });
 

@@ -191,12 +191,31 @@ export class UpstashStore implements RoomStore {
   }
 }
 
+/**
+ * What this process has asked of the database since it started. Every one of these is one
+ * command against Upstash's monthly allowance, failed attempts included. The free server
+ * restarts often, so these start again from zero each time.
+ */
+export interface StoreUsage {
+  since: number;
+  saves: number;
+  loads: number;
+  removes: number;
+  checks: number;
+  /** saves + loads + removes + checks */
+  commands: number;
+  bytesSent: number;
+  bytesReceived: number;
+  failures: number;
+}
+
 export interface StoreStatus {
   kind: string;
   /** did the most recent operation work */
   ok: boolean;
   lastOkAt: number | null;
   lastError: string | null;
+  usage: StoreUsage;
 }
 
 /** passes everything through and remembers whether the last call worked, for /health */
@@ -204,6 +223,8 @@ export class MonitoredStore implements RoomStore {
   private lastOkAt: number | null = null;
   private lastError: string | null = null;
   private lastFailed = false;
+  private counts = { saves: 0, loads: 0, removes: 0, checks: 0, bytesSent: 0, bytesReceived: 0, failures: 0 };
+  private since = Date.now();
   constructor(private inner: RoomStore, private log: (msg: string) => void = console.error) {}
 
   get kind() {
@@ -211,7 +232,14 @@ export class MonitoredStore implements RoomStore {
   }
 
   status(): StoreStatus {
-    return { kind: this.kind, ok: !this.lastFailed, lastOkAt: this.lastOkAt, lastError: this.lastError };
+    const c = this.counts;
+    return {
+      kind: this.kind,
+      ok: !this.lastFailed,
+      lastOkAt: this.lastOkAt,
+      lastError: this.lastError,
+      usage: { since: this.since, ...c, commands: c.saves + c.loads + c.removes + c.checks },
+    };
   }
 
   private async run<T>(what: string, fn: () => Promise<T>): Promise<T> {
@@ -222,6 +250,7 @@ export class MonitoredStore implements RoomStore {
       this.lastError = null;
       return out;
     } catch (err) {
+      this.counts.failures++;
       const message = err instanceof Error ? err.message : String(err);
       // log the first failure and each change, not every retry
       if (!this.lastFailed || this.lastError !== message) this.log(`room store ${what} failed: ${message}`);
@@ -231,10 +260,27 @@ export class MonitoredStore implements RoomStore {
     }
   }
 
-  load(code: string) { return this.run('load', () => this.inner.load(code)); }
-  save(code: string, json: string, ttl: number) { return this.run('save', () => this.inner.save(code, json, ttl)); }
-  remove(code: string) { return this.run('remove', () => this.inner.remove(code)); }
-  has(code: string) { return this.run('has', () => this.inner.has(code)); }
+  load(code: string) {
+    this.counts.loads++;
+    return this.run('load', async () => {
+      const json = await this.inner.load(code);
+      if (json !== null) this.counts.bytesReceived += Buffer.byteLength(json);
+      return json;
+    });
+  }
+  save(code: string, json: string, ttl: number) {
+    this.counts.saves++;
+    this.counts.bytesSent += Buffer.byteLength(json);
+    return this.run('save', () => this.inner.save(code, json, ttl));
+  }
+  remove(code: string) {
+    this.counts.removes++;
+    return this.run('remove', () => this.inner.remove(code));
+  }
+  has(code: string) {
+    this.counts.checks++;
+    return this.run('has', () => this.inner.has(code));
+  }
 }
 
 /** pick a store from the environment; null means games live in memory only */

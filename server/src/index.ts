@@ -79,13 +79,14 @@ export function createApp(opts: { botDelayScale?: number; store?: RoomStore | nu
     }
     res.setHeader('Cache-Control', 'no-store');
     // `persistent` tells the page whether a restart would lose open games; the reason for a
-    // database failure stays in the server log, not on a public page
+    // database failure stays in the server log, not on a public page. `usage` is how many
+    // commands this process has spent, to compare with the monthly allowance.
     const status = store?.status();
     res.json({
       ok: true,
       rooms: rooms.rooms.size,
       persistent: !!store,
-      store: status ? { kind: status.kind, ok: status.ok } : null,
+      store: status ? { kind: status.kind, ok: status.ok, usage: status.usage } : null,
     });
   });
 
@@ -286,6 +287,15 @@ if (isMain) {
     stopping = true;
     console.log(`${signal} received, saving games before stopping…`);
     await server.rooms.flush();
+    const u = server.store?.status().usage;
+    if (u) {
+      // a line to add up from the log if the server restarts often
+      const hours = ((Date.now() - u.since) / 3_600_000).toFixed(1);
+      console.log(
+        `Database use this run (${hours} h): ${u.commands} commands (${u.saves} saves, ${u.loads} loads, ${u.removes} deletes, ` +
+          `${u.checks} checks), ${(u.bytesSent / 1024).toFixed(0)} KB sent, ${(u.bytesReceived / 1024).toFixed(0)} KB received, ${u.failures} failed.`,
+      );
+    }
     process.exit(0);
   };
   process.on('SIGTERM', () => void stop('SIGTERM'));

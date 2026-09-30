@@ -198,6 +198,35 @@ describe('MonitoredStore', () => {
     expect(m.status()).toMatchObject({ ok: true, lastError: null });
   });
 
+  it('counts every command and the bytes it carried, failed attempts included', async () => {
+    const { state, inner } = flaky();
+    const m = new MonitoredStore(inner, () => undefined);
+    expect(m.status().usage).toMatchObject({ commands: 0, saves: 0, loads: 0, removes: 0, checks: 0, bytesSent: 0, bytesReceived: 0, failures: 0 });
+
+    await m.save('123456', '{"a":"\u00e9"}', 60); // the accented letter is two bytes in UTF-8
+    await m.save('123456', 'abc', 60);
+    await m.load('123456');
+    await m.has('123456');
+    await m.remove('123456');
+    expect(m.status().usage).toMatchObject({ saves: 2, loads: 1, checks: 1, removes: 1, commands: 5, failures: 0 });
+    expect(m.status().usage.bytesSent).toBe(Buffer.byteLength('{"a":"\u00e9"}') + 3);
+
+    state.broken = true;
+    await m.save('123456', 'xyz', 60).catch(() => undefined);
+    await m.load('123456').catch(() => undefined);
+    expect(m.status().usage).toMatchObject({ saves: 3, loads: 2, commands: 7, failures: 2 });
+    expect(m.status().usage.since).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('counts what came back from a load, and nothing for a room that was not there', async () => {
+    const inner = new MemoryStore();
+    await inner.save('123456', '0123456789', 60);
+    const m = new MonitoredStore(inner, () => undefined);
+    await m.load('123456');
+    await m.load('999999'); // not there
+    expect(m.status().usage).toMatchObject({ loads: 2, bytesReceived: 10 });
+  });
+
   it('logs a failure once, not on every retry', async () => {
     const { state, inner } = flaky();
     const logs: string[] = [];

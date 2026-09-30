@@ -37,6 +37,8 @@ export interface Room {
   stickerTimes: [number[], number[]];
   /** the bot already said "gg" for the game that just ended */
   botSaidGG?: boolean;
+  /** chat lines that no save has carried yet; see Rooms.chat */
+  chatUnsaved?: boolean;
 }
 
 const IDLE_MS = 30 * 60 * 1000;
@@ -234,7 +236,15 @@ export class Rooms {
       .then(async () => {
         if (this.forgotten.has(room)) return;
         const ttl = !room.game ? TTL.waiting : room.game.finished ? TTL.finished : TTL.playing;
-        await store.save(code, JSON.stringify(this.toStored(room, Date.now())), ttl);
+        // this save carries every chat line so far; if it fails they are still waiting to be saved
+        const carriedChat = room.chatUnsaved === true;
+        room.chatUnsaved = false;
+        try {
+          await store.save(code, JSON.stringify(this.toStored(room, Date.now())), ttl);
+        } catch (err) {
+          if (carriedChat) room.chatUnsaved = true;
+          throw err;
+        }
       })
       // a database problem must never stop the game: it carries on in memory
       .catch(() => undefined);
@@ -247,11 +257,17 @@ export class Rooms {
 
   /** write everything that is waiting to be written, for a clean shutdown */
   async flush(timeoutMs = 8000): Promise<void> {
+    const writing = new Set<string>();
     for (const { timer, room } of this.pendingSave.values()) {
       clearTimeout(timer);
+      writing.add(room.code);
       void this.write(room);
     }
     this.pendingSave.clear();
+    // rooms whose only news is chat have no save waiting; give them one now
+    for (const room of this.rooms.values()) {
+      if (room.chatUnsaved && !writing.has(room.code)) void this.write(room);
+    }
     let stop: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {
       stop = setTimeout(resolve, timeoutMs);
@@ -358,7 +374,10 @@ export class Rooms {
     room.chat.push({ id: room.nextChatId++, player: seat, text: clean, at: now });
     if (room.chat.length > CHAT_HISTORY) room.chat.splice(0, room.chat.length - CHAT_HISTORY);
     room.lastActive = now;
-    this.markDirty(room);
+    // Chat is not worth a database command of its own: a whole game is saved every time, so a
+    // chat line would cost as much as a move. It goes out with the next save instead, and
+    // is written on shutdown and when the room leaves memory. Only a crash can lose it.
+    room.chatUnsaved = true;
     return { ok: true };
   }
 
@@ -455,7 +474,7 @@ export class Rooms {
           clearTimeout(pending.timer);
           this.pendingSave.delete(room.code);
           void this.write(room);
-        }
+        } else if (room.chatUnsaved) void this.write(room);
         this.rooms.delete(room.code);
       }
     }

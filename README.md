@@ -87,11 +87,16 @@ carry on, and the time the server was down is not charged to anyone's clock.
    The service log also prints `Database check: reachable.` at startup, or says why it is not.
 
 How it behaves:
-- A game is saved a moment after each move, exchange, pass, resignation, chat message or rematch, and once more when the
-  server is told to stop. It is kept 24 hours after the last change, or 10 minutes after it finishes.
+- A game is saved a moment after each move, exchange, pass, resignation or rematch (changes that come close together
+  go out as one save), and once more when the server is told to stop. Chat does not cost a save of its own: it goes out
+  with the next one, and when the server stops or an idle room leaves memory, so only a crash can lose recent chat lines.
+  A game is kept 24 hours after the last change, or 10 minutes after it finishes.
 - If the database is down, games carry on in memory and `/health` reports `"ok":false`. Players trying to return get
   "the database is not answering" and it retries, rather than being told the game is gone.
 - Seat tokens are stored only as hashes.
+- `/health` shows how much of the allowance this run has used, under `store.usage` (commands, saves, loads, bytes, failures).
+  The free server restarts often, so the counts start again then; it also prints a summary line to its log when it stops.
+  A game is roughly 20 to 60 commands, so 500,000 a month is several thousand games.
 - The free plan allows 500,000 commands a month, which is several thousand games. Free databases are archived after
   30 days with no data operations; if nobody plays for a month, create a new one and update the two variables.
 
